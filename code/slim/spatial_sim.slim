@@ -1,4 +1,4 @@
-//written for SLiM v4.1
+//written for SLiM v4.3
 initialize() {
 
 	initializeSLiMModelType("nonWF"); // non Wright Fisher
@@ -6,7 +6,7 @@ initialize() {
    initializeTreeSeq(retainCoalescentOnly=F); // enable tree sequence recording
    
    defaults = Dictionary(
-		"SEED", getSeed(),
+		"SEED", 39289,//getSeed(),
 		"sigma_comp", 4,         // interaction distance for measuring local density
 		"sigma_mate", 1.5,         // sigma_D, dispersal distance
 		"sigma_disp", 1.5,         // dispersal distance
@@ -22,6 +22,7 @@ initialize() {
 		
 	// Set up parameters with a user-defined function
 	setupParams(defaults);
+	defineConstant("ouput_path", "/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/");
 	
 	// Set up constants that depend on externally defined parameters
 	//defineConstant("FECUN", 5);
@@ -30,8 +31,7 @@ initialize() {
 	
 	
 	setSeed(SEED);
-    
-
+	
    initializeMutationRate(MU); // no mutations
    initializeMutationType("m1", 0.5, "f", 0.0); // mutations
    initializeGenomicElementType("g1", m1, 1.0); // genome type
@@ -62,8 +62,8 @@ first() {
 reproduction() {
 	mate = i2.drawByStrength(individual, 1);
 	if (mate.size())
-		subpop.addCrossed(individual, mate, count=rpois(1, 5));
-		//subpop.addCrossed(individual, mate, count=rpois(1, FECUN));
+		//subpop.addCrossed(individual, mate, count=rpois(1, 5));
+		subpop.addCrossed(individual, mate, count=rpois(1, FECUN));
 }
 
 
@@ -101,7 +101,7 @@ late() {
 
 
 RUNTIME late () { //end
-	sim.treeSeqOutput("/Users/alexlewanski/Documents/michigan_state/research/tmp/test.trees");
+	sim.treeSeqOutput(paste0(ouput_path, "example_sim.trees"));
    catn("Simulation completed!");
    sim.simulationFinished();
 }
