@@ -1,13 +1,9 @@
-# Variable hybridization between two Lake Tanganyikan cichlid species in recent secondary contact
+# Estimating locations using genomic genealogies
 
 ## Table of Contents
 - [Overview](#overview)
 - [Author](#author)
 - [Contents](#contents)
-- [Content details](#content-details)
-  - [figures](#figures)
-  - [hpc_files](#hpc_files)
-  - [project_scripts](#project_scripts)
 
 ## Author
 
