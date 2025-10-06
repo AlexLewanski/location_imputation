@@ -1,0 +1,161 @@
+//written for SLiM v4.1
+initialize() {
+
+	initializeSLiMModelType("nonWF"); // non Wright Fisher
+   initializeSLiMOptions(dimensionality="xy"); // two spatial dimensions
+   initializeTreeSeq(retainCoalescentOnly=F); // enable tree sequence recording
+   
+   defaults = Dictionary(
+		"SEED", getSeed(),
+		"sigma_comp", 4,         // interaction distance for measuring local density
+		"sigma_mate", 1.5,         // sigma_D, dispersal distance
+		"sigma_disp", 1.5,         // dispersal distance
+		"K", 0.09,            // carrying capacity per unit area
+		"FECUN", 5,
+		"WIDTH", 100.0,     // landscape width
+		"HEIGHT", 100.0,    // landscape height
+		"RUNTIME", 8000,    // total simulation ticks
+		"L", 1e8,          // genome length
+		"RBP", 1e-8,       // recombination rate
+		"MU", 0.0            // mutation rate
+	);
+		
+	// Set up parameters with a user-defined function
+	setupParams(defaults);
+	
+	// Set up constants that depend on externally defined parameters
+	//defineConstant("FECUN", 5);
+	defineConstant("RHO", FECUN / ((1 + FECUN) * K));
+	defineConstant("PARAMS", defaults);
+	
+	
+	setSeed(SEED);
+    
+
+   initializeMutationRate(MU); // no mutations
+   initializeMutationType("m1", 0.5, "f", 0.0); // mutations
+   initializeGenomicElementType("g1", m1, 1.0); // genome type
+   initializeGenomicElement(g1, 0, asInteger(L)-1); // length of chromosome
+   initializeRecombinationRate(RBP); // recombination rate per base
+    
+   // spatial interaction for local competition
+   initializeInteractionType(1, "xy", reciprocal=T, maxDistance=3*sigma_comp);
+	i1.setInteractionFunction("n", 1, sigma_comp);
+	
+   // spatial interaction for mate choice
+   initializeInteractionType(2, "xy", reciprocal=T, maxDistance = 3*sigma_mate); 
+   i2.setInteractionFunction("n", 1.0, sigma_mate); //max is irrelevant, as mates are chosen based on relative strengths
+}
+
+1 first() { //initiate pop
+    sim.addSubpop("p1", asInteger(K * WIDTH * HEIGHT));
+    p1.setSpatialBounds(c(0.0, 0.0, WIDTH, HEIGHT)); //set spatial plane
+    p1.individuals.setSpatialPosition(p1.pointUniform(p1.individualCount));
+}
+
+first() {
+	// preparation for the reproduction() callback
+	i2.evaluate(p1); //mate choice
+}
+
+
+reproduction() {
+	mate = i2.drawByStrength(individual, 1);
+	if (mate.size())
+		subpop.addCrossed(individual, mate, count=rpois(1, 5));
+		//subpop.addCrossed(individual, mate, count=rpois(1, FECUN));
+}
+
+
+early() {
+	// Disperse offspring
+	offspring = p1.subsetIndividuals(maxAge=0);
+	p1.deviatePositions(offspring, "reprising", INF, "n", sigma_disp);
+		
+	// Measure local density and use it for density regulation
+	i1.evaluate(p1);
+	competition = i1.localPopulationDensity(offspring);
+	offspring.fitnessScaling = 1/(1 + RHO * competition);
+	
+	adults = p1.subsetIndividuals(minAge=1);
+   adults.fitnessScaling = 0.0; //remove adults to make discrete generations (section 16.15)
+}
+
+    
+
+early() { // survival probabilities
+    inds = sim.subpopulations.individuals;
+    inds[inds.age > 0].fitnessScaling = 0.0; //remove adults to make discrete generations (see section 16.15 of the manual)
+}
+
+
+late() {
+	if (p1.individualCount == 0) {
+		catn("Population went extinct! Ending the simulation.");
+		sim.simulationFinished();
+	}
+   
+   sim.treeSeqRememberIndividuals(p1.individuals, permanent=F);
+}
+
+
+
+RUNTIME late () { //end
+	sim.treeSeqOutput("/Users/alexlewanski/Documents/michigan_state/research/tmp/test.trees");
+   catn("Simulation completed!");
+   sim.simulationFinished();
+}
+
+
+
+function (void)setupParams(object<Dictionary>$ defaults)
+{
+	if (!exists("PARAMFILE")) defineConstant("PARAMFILE", "./params.json");
+	if (!exists("OUTDIR")) defineConstant("OUTDIR", ".");
+	defaults.addKeysAndValuesFrom(Dictionary("PARAMFILE", PARAMFILE, "OUTDIR", OUTDIR));
+	
+	if (fileExists(PARAMFILE)) {
+		defaults.addKeysAndValuesFrom(Dictionary(readFile(PARAMFILE)));
+		defaults.setValue("READ_FROM_PARAMFILE", PARAMFILE);
+	}
+	
+	defaults.setValue("OUTBASE", OUTDIR + "/out_" +	defaults.getValue("SEED"));
+	defaults.setValue("OUTPATH", defaults.getValue("OUTBASE") + ".trees");
+	
+	for (k in defaults.allKeys) {
+		if (!exists(k))
+			defineConstant(k, defaults.getValue(k));
+		else
+			defaults.setValue(k, executeLambda(k + ";"));
+	}
+	
+	// print out default values
+	catn("===========================");
+	catn("Model constants: " + defaults.serialize("pretty"));
+	catn("===========================");
+}
+
+
+
+
+//reproduction() {
+//    neighbor_density = i1.totalOfNeighborStrengths(individual); // sum of interaction strengths
+//    num_offspring = rpois(1, LAMBDA / (1 + neighbor_density / K)); // poisson number of offspring with mean LAMBDA/(1+n_d/K), ie Beverton-Holt density dependence
+//    for (i in seqLen(num_offspring)) {
+//        if (runif(1) < SELFING) { // if selfing
+//            offspring = p1.addSelfed(individual);
+//            pos = individual.spatialPosition + rnorm(2, 0, sigma_disp); // set position of offspring as random normal in both directions
+//            offspring.setSpatialPosition(p1.pointReflected(pos)); // put offspring in its place
+//        }
+//        else { //if not selfing        
+//            mate = i2.drawByStrength(individual, 1);  // random mate for each outcrossed offspring 
+//            if (size(mate) > 0) { // if there is a mate (possible none within interacting distance, in which case there are no offspring)
+            
+//            //see page 481 for discussion of offspring location
+//                offspring = p1.addCrossed(individual, mate); //make offspring by sexual reproduction
+//                pos = individual.spatialPosition + rnorm(2, 0, sigma_disp); // set position of offspring as draw from normals
+//                offspring.setSpatialPosition(p1.pointReflected(pos)); // set offspring location(reflecting boundaries)
+//            }
+//        }
+//    }
+//}
