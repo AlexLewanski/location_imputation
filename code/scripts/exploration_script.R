@@ -22,9 +22,11 @@ source(here('code', 'scripts', 'location_est_code.R'))
 
 
 ### LOADING DATA (GENEALOGIES, INDIVIDUAL INFO, ETC...) ###
-
-tree_list <- lapply(list.files(here('simulation_output', 'tree_dir'), full.names = TRUE),
+#here('simulation_output', 'tree_dir')
+files_vec <- list.files(here('simulation_output'), full.names = TRUE)
+tree_list <- lapply(files_vec[grep(".*nwk$", files_vec)],
                     function(x) ape::read.tree(x)) 
+
 
 indiv_node_info <- read.delim(here('simulation_output', 'indiv_node_info.txt'), header = TRUE)
 indiv_node_info$n_node <- paste0('n', indiv_node_info$node)
