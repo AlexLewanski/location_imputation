@@ -2,4 +2,4 @@
 tmp
 *.trees
 .ipynb_checkpoints
-tree_dir/
+*.nwk
