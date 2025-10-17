@@ -1,0 +1,228 @@
+//written for SLiM v4.3
+//Overview:
+// - Simulation of an spatial population on 100x100 landscape involving
+// an organism with non-overlapping generations
+// - In the penultimate generation, individuals are taken from distant
+// portions of the landcape and then interbreed. 
+// - The simulation involves tree sequence recording and retention of
+// pedigrees. The tree sequence recording is necessary for obtaining
+// trees, and the pedigree information is used to keep track of the
+// original generation of individuals involved in admixture when
+// simplification occurs (which changes node IDs)
+ 
+initialize() {	
+	
+	initializeSLiMModelType("nonWF"); // non Wright Fisher
+   initializeSLiMOptions(keepPedigrees = T, dimensionality="xy"); // two spatial dimensions
+   initializeTreeSeq(retainCoalescentOnly=F); // enable tree sequence recording
+   
+   defaults = Dictionary(
+		"SEED", 19289,//getSeed(),
+		"sigma_comp", 3,         // interaction distance for measuring local density
+		"sigma_mate", 1.25,         // sigma_D, dispersal distance
+		"sigma_disp", 1.25,         // dispersal distance
+		"K", 0.16,            // carrying capacity per unit area
+		"FECUN", 5,
+		"WIDTH", 100.0,     // landscape width
+		"HEIGHT", 100.0,    // landscape height
+		"RUNTIME", 10000,    // total simulation ticks
+		"L", 1.5e8,          // genome length
+		"RBP", 1.5e-8,       // recombination rate
+		"MU", 0.0            // mutation rate
+	);	
+	
+	// Set up parameters with a user-defined function
+	setupParams(defaults);
+	defineConstant("ouput_path", "/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/");
+	
+	// Set up constants that depend on externally defined parameters
+	//defineConstant("FECUN", 5);
+	defineConstant("RHO", FECUN / ((1 + FECUN) * K));
+	defineConstant("PARAMS", defaults);
+	
+	
+	setSeed(SEED);
+	
+   initializeMutationRate(MU); // no mutations
+   initializeMutationType("m1", 0.5, "f", 0.0); // mutations
+   initializeGenomicElementType("g1", m1, 1.0); // genome type
+   initializeGenomicElement(g1, 0, asInteger(L)-1); // length of chromosome
+   initializeRecombinationRate(RBP); // recombination rate per base
+    
+   // spatial interaction for local competition
+   initializeInteractionType(1, "xy", reciprocal=T, maxDistance=3*sigma_comp);
+	i1.setInteractionFunction("n", 1, sigma_comp);
+	
+   // spatial interaction for mate choice
+   initializeInteractionType(2, "xy", reciprocal=T, maxDistance = 3*sigma_mate); 
+   i2.setInteractionFunction("n", 1.0, sigma_mate); //max is irrelevant, as mates are chosen based on relative strengths
+}
+
+1 first() { //initiate pop
+    sim.addSubpop("p1", asInteger(K * WIDTH * HEIGHT));
+    sim.addSubpop("p2", 0); //the captive population
+    p1.setSpatialBounds(c(0.0, 0.0, WIDTH, HEIGHT)); //set spatial plane
+    p1.individuals.setSpatialPosition(p1.pointUniform(p1.individualCount));
+}
+
+first() {
+	// preparation for the reproduction() callback
+	i2.evaluate(p1); //mate choice
+}
+
+
+reproduction(p1) {
+	mate = i2.drawByStrength(individual, 1);
+	if (mate.size())
+		subpop.addCrossed(individual, mate, count=rpois(1, FECUN));
+}
+
+
+(RUNTIME - 1) late() {
+	writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/parents_locs.txt",
+				 paste(c('indiv_tag', 'ped_id', 'x', 'y')));
+				 
+	inds = p1.individuals;
+	indiv1 = sample(inds[inds.x > 70 & inds.x < 80 & inds.y > 75 & inds.y < 85], 1);
+	indiv1.tag = 1;
+	writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/parents_locs.txt",
+				 paste(1, indiv1.pedigreeID, paste(indiv1.xy)), append = T);
+				 
+	
+	indiv2 = sample(inds[inds.x > 10 & inds.x < 25 & inds.y > 10 & inds.y < 25], 1);
+	indiv2.tag = 2;
+	writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/parents_locs.txt",
+				 paste(2, indiv2.pedigreeID, paste(indiv2.xy)), append = T);
+   
+   indiv3 = sample(inds[inds.x > 75 & inds.x < 80 & inds.y > 40 & inds.y < 60], 1);
+   indiv3.tag = 3;
+   writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/parents_locs.txt",
+				 paste(3, indiv3.pedigreeID, paste(indiv3.xy)), append = T);
+   
+	indiv4 = sample(inds[inds.x > 10 & inds.x < 25 & inds.y > 40 & inds.y < 60], 1);
+	indiv4.tag = 4;
+	writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/parents_locs.txt",
+				 paste(4, indiv4.pedigreeID, paste(indiv4.xy)), append = T);
+				 
+	indiv5 = sample(inds[inds.x > 45 & inds.x < 55 & inds.y > 15 & inds.y < 25], 1);
+	indiv5.tag = 5;
+	writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/parents_locs.txt",
+				 paste(5, indiv5.pedigreeID, paste(indiv5.xy)), append = T);
+				 
+	indiv6 = sample(inds[inds.x > 25 & inds.x < 40 & inds.y > 75 & inds.y < 85], 1);
+	indiv6.tag = 6;
+	writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/parents_locs.txt",
+				 paste(6, indiv6.pedigreeID, paste(indiv6.xy)), append = T);
+											
+	p2.takeMigrants(c(indiv1, indiv2, indiv3, indiv4, indiv5, indiv6));
+	
+}
+
+RUNTIME reproduction(p2) {
+	writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/offspring_info.txt",
+				 paste(c('indiv_tag', 'ped_id', 'p1_ped_id', 'p2_ped_id')));
+				 
+	indiv1 = p2.individuals[p2.individuals.tag == 1];
+   indiv2 = p2.individuals[p2.individuals.tag == 2];
+   indiv12 = p2.addCrossed(indiv1, indiv2, count = 1);
+   indiv12.tag = 12;
+   writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/offspring_info.txt",
+				 paste(12, indiv12.pedigreeID, indiv12.pedigreeParentIDs), append = T);
+   
+   indiv3 = p2.individuals[p2.individuals.tag == 3];
+   indiv4 = p2.individuals[p2.individuals.tag == 4];
+   indiv34 = p2.addCrossed(indiv3, indiv4, count = 1);
+   indiv34.tag = 34;
+   writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/offspring_info.txt",
+				 paste(34, indiv34.pedigreeID, indiv34.pedigreeParentIDs), append = T);
+   
+   indiv5 = p2.individuals[p2.individuals.tag == 5];
+   indiv6 = p2.individuals[p2.individuals.tag == 6];
+   indiv56 = p2.addCrossed(indiv5, indiv6, count = 1);
+   indiv56.tag = 56;
+   writeFile("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/offspring_info.txt",
+				 paste(56, indiv56.pedigreeID, indiv56.pedigreeParentIDs), append = T);
+   
+   self.active = 0;
+}
+
+
+early() {
+	// Disperse offspring
+	offspring = p1.subsetIndividuals(maxAge=0);
+	p1.deviatePositions(offspring, "reprising", INF, "n", sigma_disp);
+		
+	// Measure local density and use it for density regulation
+	i1.evaluate(p1);
+	competition = i1.localPopulationDensity(offspring);
+	offspring.fitnessScaling = 1/(1 + RHO * competition);
+	
+	adults = sim.subpopulations.subsetIndividuals(minAge=1);
+   adults.fitnessScaling = 0.0; //remove adults to make discrete generations (section 16.15)
+}
+
+
+late() {
+	if (p1.individualCount == 0) {
+		catn("Population went extinct! Ending the simulation.");
+		sim.simulationFinished();
+	}   
+   sim.treeSeqRememberIndividuals(sim.subpopulations.individuals, permanent=F);
+}
+
+
+RUNTIME late () { //end
+	sim.treeSeqOutput(paste0(ouput_path, "example_sim_admix.trees"));
+   catn("Simulation completed!");
+   sim.simulationFinished();
+}
+
+
+function (void)setupParams(object<Dictionary>$ defaults)
+{
+	if (!exists("PARAMFILE")) defineConstant("PARAMFILE", "./params.json");
+	if (!exists("OUTDIR")) defineConstant("OUTDIR", ".");
+	defaults.addKeysAndValuesFrom(Dictionary("PARAMFILE", PARAMFILE, "OUTDIR", OUTDIR));
+	
+	if (fileExists(PARAMFILE)) {
+		defaults.addKeysAndValuesFrom(Dictionary(readFile(PARAMFILE)));
+		defaults.setValue("READ_FROM_PARAMFILE", PARAMFILE);
+	}
+	
+	defaults.setValue("OUTBASE", OUTDIR + "/out_" +	defaults.getValue("SEED"));
+	defaults.setValue("OUTPATH", defaults.getValue("OUTBASE") + ".trees");
+	
+	for (k in defaults.allKeys) {
+		if (!exists(k))
+			defineConstant(k, defaults.getValue(k));
+		else
+			defaults.setValue(k, executeLambda(k + ";"));
+	}
+	
+	// print out default values
+	catn("===========================");
+	catn("Model constants: " + defaults.serialize("pretty"));
+	catn("===========================");
+}
+
+
+
+// === UNUSED CODE ===
+//early() { // survival probabilities
+//    inds = sim.subpopulations.individuals;
+//    //inds = p1.individuals;
+//    inds[inds.age > 0].fitnessScaling = 0.0; //remove adults to make discrete generations (see section 16.15 of the manual)
+//}
+
+	//p2_males = p2.individuals[p2.individuals.sex == 'M'];
+	//p2_females = p2.individuals[p2.individuals.sex == 'F'];
+	
+	//for (SEX in c(0, 1)) {
+	//	subset_sex_vec = drop(PED[SEX_INFO == SEX & REPRO_TICK == 0,0]);
+	//	sex_string = ifelse(SEX == 0, 'M', 'F');
+	//	p2_indiv_subset = p2.individuals[p2.individuals.sex == sex_string];
+		
+	//	print(subset_sex_vec);
+	//	print(p2_indiv_subset);
+	//	p2_indiv_subset.tag = subset_sex_vec;
+	//}
