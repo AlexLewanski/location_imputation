@@ -8,21 +8,21 @@ initialize() {
    defaults = Dictionary(
 		"SEED", 39289,//getSeed(),
 		"sigma_comp", 4,         // interaction distance for measuring local density
-		"sigma_mate", 1.5,         // sigma_D, dispersal distance
-		"sigma_disp", 1.5,         // dispersal distance
-		"K", 0.09,            // carrying capacity per unit area
+		"sigma_mate", 3,         // sigma_D, dispersal distance
+		"sigma_disp", 3,         // dispersal distance
+		"K", 0.12,            // carrying capacity per unit area
 		"FECUN", 5,
 		"WIDTH", 100.0,     // landscape width
 		"HEIGHT", 100.0,    // landscape height
-		"RUNTIME", 8000,    // total simulation ticks
-		"L", 1e8,          // genome length
-		"RBP", 1e-8,       // recombination rate
+		"RUNTIME", 10000,    // total simulation ticks
+		"L", 1.5e8,          // genome length
+		"RBP", 1.5e-8,       // recombination rate
 		"MU", 0.0            // mutation rate
 	);
 		
 	// Set up parameters with a user-defined function
 	setupParams(defaults);
-	defineConstant("ouput_path", "/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/");
+//	defineConstant("ouput_path", "/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/");
 	
 	// Set up constants that depend on externally defined parameters
 	//defineConstant("FECUN", 5);
