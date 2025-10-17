@@ -1,4 +1,15 @@
 //written for SLiM v4.3
+//Overview:
+// - Simulation of an spatial population on 100x100 landscape involving
+// an organism with non-overlapping generations
+// - In the penultimate generation, individuals are taken from distant
+// portions of the landcape and then interbreed. 
+// - The simulation involves tree sequence recording and retention of
+// pedigrees. The tree sequence recording is necessary for obtaining
+// trees, and the pedigree information is used to keep track of the
+// original generation of individuals involved in admixture when
+// simplification occurs (which changes node IDs)
+ 
 initialize() {	
 	
 	initializeSLiMModelType("nonWF"); // non Wright Fisher
