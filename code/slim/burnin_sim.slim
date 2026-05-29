@@ -1,0 +1,199 @@
+// ================================================================
+// ================================================================
+// SIMULATION OF DISTANT INTER-BREEDING IN A SPATIAL POPULATION ===
+// ================================================================
+// ================================================================
+
+//written for SLiM v4.3
+//Overview:
+// - Simulation of a spatial population on a 100x100 landscape involving
+// an organism with non-overlapping generations
+// - The simulation involves tree sequence recording and retention of
+// pedigrees. The tree sequence recording is necessary for obtaining
+// trees, and the pedigree information is used to keep track of the
+// original generation of individuals involved in admixture when
+// simplification occurs (which changes node IDs)
+
+// define or modify parameters via the command line with -d
+// or by passing a file name to "ParamFile"
+// or read in from a params.json file in the current working directory
+// or OUTDIR if defined on the command line
+
+ 
+initialize() {	
+	
+	initializeSLiMModelType("nonWF"); // non Wright Fisher
+   initializeSLiMOptions(keepPedigrees = T, dimensionality="xy"); // two spatial dimensions
+   initializeTreeSeq(retainCoalescentOnly=F); // enable tree sequence recording
+   
+   defaults = Dictionary(
+		"SEED", getSeed(),//getSeed(), #19289
+		"sigma_comp", 3,         // interaction distance for measuring local density
+		"sigma_mate", 0.75,         // sigma_D, dispersal distance 
+		"sigma_disp", 1.75,         // dispersal distance
+		"K", 0.16,            // carrying capacity per unit area
+		"FECUN", 5,
+		"WIDTH", 100.0,     // landscape width
+		"HEIGHT", 100.0,    // landscape height
+		"RUNTIME", 3000,    // total simulation ticks
+		"L", 1.25e8,          // genome length
+		"RBP", 1.25e-8,       // recombination rate
+		"MU", 0.0,            // mutation rate
+		"OUTDIR", exists("OUTDIR") ? OUTDIR else ".",
+      "OUTPATH", exists("OUTPATH") ? OUTPATH else "simulation",
+      "ParamFile", exists("ParamFile") ? ParamFile else "params.json",
+		"SUFFIX", "SIM"
+		//"ouput_path", "/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_3pop/"
+		//"LOCATION_COUNT", 3, 
+		//"FOUNDER_COUNT_VEC", c(2, 1, 1), //needs to equal four
+	);
+	
+	if (fileExists(defaults.getValue("ParamFile"))){
+        local_params = Dictionary(paste(readFile(defaults.getValue("ParamFile")), sep="\n"));
+        defaults.addKeysAndValuesFrom(local_params);
+        defaults.setValue("read_from_paramfile", defaults.getValue("ParamFile"));
+    }
+    //defaults.setValue("TREEOUT", defaults.getValue("OUTDIR") + "/" + defaults.getValue("OUTPATH"));
+    //defaults.setValue("LOGOUT", defaults.getValue("OUTDIR") + "/" + defaults.getValue("OUTPATH") + ".log");
+    //defaults.setValue("STATEOUT", defaults.getValue("OUTDIR") + "/" + defaults.getValue("OUTPATH") + "-tick" + defaults.getValue("BURNIN") + ".txt");
+
+    catn("-------------\n");
+    for (k in defaults.allKeys) {
+        if (!exists(k)) {
+            defineConstant(k, defaults.getValue(k));
+        } else {
+            defaults.setValue(k, executeLambda(paste(c(k, ";"), sep='')));
+        }
+        if (k != "README") {
+            catn(" " + k + ": " + defaults.getValue(k));
+        }
+    }
+    catn("-------------\n");
+    defineGlobal("params", defaults);
+	
+	// Set up parameters with a user-defined function
+	//setupParams(defaults);
+	
+	// Set up constants that depend on externally defined parameters
+	//defineConstant("FECUN", 5);
+	defineConstant("RHO", FECUN / ((1 + FECUN) * K));
+	defineConstant("PARAMS", defaults);
+	
+	setSeed(SEED);
+	
+   initializeMutationRate(MU); // no mutations
+   initializeMutationType("m1", 0.5, "f", 0.0); // mutations
+   initializeGenomicElementType("g1", m1, 1.0); // genome type
+   initializeGenomicElement(g1, 0, asInteger(L)-1); // length of chromosome
+   initializeRecombinationRate(RBP); // recombination rate per base
+    
+   // spatial interaction for local competition
+   initializeInteractionType(1, "xy", reciprocal=T, maxDistance=3*sigma_comp);
+	i1.setInteractionFunction("n", 1, sigma_comp);
+	
+   // spatial interaction for mate choice
+   initializeInteractionType(2, "xy", reciprocal=T, maxDistance = 3*sigma_mate); 
+   i2.setInteractionFunction("n", 1.0, sigma_mate); //max is irrelevant, as mates are chosen based on relative strengths
+   
+   print(OUTPATH + "/" + OUTDIR + "/" + "BURNIN" + SUFFIX + ".trees");
+}
+
+
+1 first() { //initiate pop
+    sim.addSubpop("p1", asInteger(K * WIDTH * HEIGHT));
+    //sim.addSubpop("p2", 0); //the pedigree population
+    p1.setSpatialBounds(c(0.0, 0.0, WIDTH, HEIGHT)); //set spatial plane
+    p1.individuals.setSpatialPosition(p1.pointUniform(p1.individualCount));
+}
+
+
+first() {
+	// preparation for the reproduction() callback
+	i2.evaluate(p1); //mate choice
+}
+
+
+reproduction(p1) {
+	mate = i2.drawByStrength(individual, 1);
+	if (mate.size())
+		subpop.addCrossed(individual, mate, count=rpois(1, FECUN));
+}
+
+
+early() {
+	// Disperse offspring
+	offspring = p1.subsetIndividuals(maxAge=0);
+	p1.deviatePositions(offspring, "reprising", INF, "n", sigma_disp);
+		
+	// Measure local density and use it for density regulation
+	i1.evaluate(p1);
+	competition = i1.localPopulationDensity(offspring);
+	offspring.fitnessScaling = 1/(1 + RHO * competition);
+	
+	adults = sim.subpopulations.subsetIndividuals(minAge=1);
+   adults.fitnessScaling = 0.0; //remove adults to make discrete generations (section 16.15)
+}
+
+
+late() {
+	if (p1.individualCount == 0) {
+		catn("Population went extinct! Ending the simulation.");
+		sim.simulationFinished();
+	}
+   sim.treeSeqRememberIndividuals(sim.subpopulations.individuals, permanent=F);
+}
+
+
+RUNTIME late () { //end
+
+	print(paste('Ending size of wild pop:', p1.individualCount));
+	//print(paste('Ending size of pedigree pop:', p2.individualCount));
+	print(paste('Last tick:', community.tick));
+	
+	sim.treeSeqOutput(OUTPATH + "/" + OUTDIR + "/" + "BURNIN" + SUFFIX + ".trees", metadata=params);
+   catn("Simulation completed!");
+   sim.simulationFinished();
+}
+
+
+
+// ====================
+// CUSTOM FUNCTIONS ===
+// ====================
+
+//function (void)setupParams(object<Dictionary>$ defaults)
+//{
+//	if (!exists("PARAMFILE")) defineConstant("PARAMFILE", "./params.json");
+//	if (!exists("OUTDIR")) defineConstant("OUTDIR", ".");
+//	defaults.addKeysAndValuesFrom(Dictionary("PARAMFILE", PARAMFILE, "OUTDIR", OUTDIR));
+//	
+//	if (fileExists(PARAMFILE)) {
+//		defaults.addKeysAndValuesFrom(Dictionary(readFile(PARAMFILE)));
+//		defaults.setValue("READ_FROM_PARAMFILE", PARAMFILE);
+//	}
+//	
+//	defaults.setValue("OUTBASE", OUTDIR + "/out_" +	defaults.getValue("SEED"));
+//	defaults.setValue("OUTPATH", defaults.getValue("OUTBASE") + ".trees");
+//	
+//	for (k in defaults.allKeys) {
+//		if (!exists(k))
+//			defineConstant(k, defaults.getValue(k));
+//		else
+//			defaults.setValue(k, executeLambda(k + ";"));
+//	}
+//	
+//	// print out default values
+//	catn("===========================");
+//	catn("Model constants: " + defaults.serialize("pretty"));
+//	catn("===========================");
+//}
+
+
+function (+)readMatrix(s$ path, [string$ sep = ","])
+{
+	if (!fileExists(path))
+		stop("readMatrix(): File not found at path " + path);
+	df = readCSV(path, colNames=F, sep=sep);
+	m = df.asMatrix();
+	return m;
+}

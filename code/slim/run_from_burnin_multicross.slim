@@ -1,0 +1,444 @@
+initialize() {	
+	
+	initializeSLiMModelType("nonWF"); // non Wright Fisher
+   initializeSLiMOptions(keepPedigrees = T, dimensionality="xy"); // two spatial dimensions
+   initializeTreeSeq(retainCoalescentOnly=F); // enable tree sequence recording
+   
+   defaults = Dictionary(
+		"SEED", getSeed(),//getSeed(), #19289
+		"sigma_comp", 3,         // interaction distance for measuring local density
+		"sigma_mate", 0.75,         // sigma_D, dispersal distance 
+		"sigma_disp", 1.75,         // dispersal distance
+		"K", 0.11,            // carrying capacity per unit area
+		"FECUN", 5,
+		"WIDTH", 100.0,     // landscape width
+		"HEIGHT", 100.0,    // landscape height
+		//"RUNTIME", 300,    // total simulation ticks
+		"L", 1.25e8,          // genome length
+		"RBP", 1.25e-8,       // recombination rate
+		"MU", 0.0,            // mutation rate
+		"LOCATION_COUNT", 2,
+		"CROSS_COUNT", 5,
+		"FOUNDER_COUNT_VEC", "3 1", //needs to equal four
+		"WITHIN_LOCATION_SAMPLE_EXTENT", 5,
+		"BETWEEN_LOCATION_MIN_DIST", 15,
+		"OUTDIR", exists("OUTDIR") ? OUTDIR else ".",
+      "OUTPATH", exists("OUTPATH") ? OUTPATH else "simulation",
+      "ParamFile", exists("ParamFile") ? ParamFile else "params.json",
+		"SUFFIX", "SIM"
+	);
+	
+	if (fileExists(defaults.getValue("ParamFile"))){
+        local_params = Dictionary(paste(readFile(defaults.getValue("ParamFile")), sep="\n"));
+        defaults.addKeysAndValuesFrom(local_params);
+        defaults.setValue("read_from_paramfile", defaults.getValue("ParamFile"));
+    }
+    //defaults.setValue("TREEOUT", defaults.getValue("OUTDIR") + "/" + defaults.getValue("OUTPATH"));
+    //defaults.setValue("LOGOUT", defaults.getValue("OUTDIR") + "/" + defaults.getValue("OUTPATH") + ".log");
+    //defaults.setValue("STATEOUT", defaults.getValue("OUTDIR") + "/" + defaults.getValue("OUTPATH") + "-tick" + defaults.getValue("BURNIN") + ".txt");
+    
+    
+    //defineConstant("OUTDIR", "postburnin_sims");
+    //defineConstant("OUTPATH", "/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output");
+
+    catn("-------------\n");
+    for (k in defaults.allKeys) {
+        if (!exists(k)) {
+            defineConstant(k, defaults.getValue(k));
+        } else {
+            defaults.setValue(k, executeLambda(paste(c(k, ";"), sep='')));
+        }
+        if (k != "README") {
+            catn(" " + k + ": " + defaults.getValue(k));
+        }
+    }
+    catn("-------------\n");
+    defineGlobal("params", defaults);
+	
+	// Set up parameters with a user-defined function
+	//setupParams(defaults);
+	//defineConstant("INPUT_NAME", input_name);
+	
+	// Set up constants that depend on externally defined parameters
+	//defineConstant("FECUN", 5);
+	defineConstant("RHO", FECUN / ((1 + FECUN) * K));
+	defineConstant("PARAMS", defaults);
+	defineConstant("FOUNDER_COUNT_VEC_PROCESS", asInteger(strsplit(FOUNDER_COUNT_VEC, sep = " ")));
+	
+	// read in the pedigree log files
+	defineConstant("PED", readMatrix("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/code/slim/ped_sim_files/gen3_mate.txt", sep=""));
+	defineConstant("DEATH", readMatrix("/Users/alexlewanski/Documents/michigan_state/research/location_imputation/code/slim/ped_sim_files/gen3_death.txt", sep=""));
+	
+	// extract the ticks and sex info for quick lookup
+	defineConstant("REPRO_TICK", drop(PED[,4]));
+	defineConstant("DEATH_TICK", drop(DEATH[,1]));
+	defineConstant("SEX_INFO", drop(PED[,3]));
+	
+	//defineConstant("START_TICK", 3000);
+	defineConstant("RUNTIME", START_TICK + max(REPRO_TICK));
+	
+	
+	setSeed(SEED);
+	
+   initializeMutationRate(MU); // no mutations
+   initializeMutationType("m1", 0.5, "f", 0.0); // mutations
+   initializeGenomicElementType("g1", m1, 1.0); // genome type
+   initializeGenomicElement(g1, 0, asInteger(L)-1); // length of chromosome
+   initializeRecombinationRate(RBP); // recombination rate per base
+    
+   // spatial interaction for local competition
+   initializeInteractionType(1, "xy", reciprocal=T, maxDistance=3*sigma_comp);
+	i1.setInteractionFunction("n", 1, sigma_comp);
+	
+   // spatial interaction for mate choice
+   initializeInteractionType(2, "xy", reciprocal=T, maxDistance = 3*sigma_mate); 
+   i2.setInteractionFunction("n", 1.0, sigma_mate); //max is irrelevant, as mates are chosen based on relative strengths
+}
+
+
+(START_TICK) late() { //initiate pop
+    //sim.addSubpop("p1", asInteger(K * WIDTH * HEIGHT));
+    //sim.readFromPopulationFile(paste0(burnin_path, INPUT_NAME));
+    sim.readFromPopulationFile(BURNIN_TREE_PATH + "/" + BURNIN_TREE_NAME);
+    
+    
+    writeFile(OUTPATH + "/" + OUTDIR + "/" + "parents_locs_ped_POSTBURNIN_" + SUFFIX + ".txt", 
+             paste('subpop', 'location_id', 'pedigree_id', 'x', 'y'), append = F);
+    
+    writeFile(OUTPATH + "/" + OUTDIR + "/" + "location_centers_POSTBURNIN_" + SUFFIX + ".txt", 
+                paste('subpop', 'location_id', 'x', 'y'), append = F);
+    
+    writeFile(OUTPATH + "/" + OUTDIR + "/" + "offspring_info_POSTBURNIN_" + SUFFIX + ".txt",
+				  paste(c('subpop', 'indiv_tag', 'ped_id', 'p1_ped_id', 'p2_ped_id', 'tick')));
+				  
+    for (SUBPOP in 2:(CROSS_COUNT + 1)) { //start indexing from 2 because p1 is the 1 pop
+    	sim.addSubpop(SUBPOP, 0);
+    	inds = p1.individuals;
+    	
+    	//print(paste('inds', length(inds)));
+    	//print(paste('LOCATION_COUNT', LOCATION_COUNT));
+    	//print(paste('FOUNDER_COUNT_VEC', FOUNDER_COUNT_VEC));
+    	//print(paste('TEST', c(1, 2, 4)));
+    	//print(paste('FOUNDER_COUNT_VEC_PROCESS', FOUNDER_COUNT_VEC_PROCESS));
+    	
+    	founder_info = sample_founders(inds, 
+                                     LOCATION_COUNT, 
+                                     FOUNDER_COUNT_VEC_PROCESS,
+                                     WITHIN_LOCATION_SAMPLE_EXTENT, 
+                                     c(10, 90),
+                                     c(10, 90),
+                                     BETWEEN_LOCATION_MIN_DIST);
+                                  
+      
+      for (i in seqAlong(founder_info.getValue("founders")))      
+      {
+		      writeFile(OUTPATH + "/" + OUTDIR + "/" + "parents_locs_ped_POSTBURNIN_" + SUFFIX + ".txt",
+		                paste(SUBPOP,
+		                      founder_info.getValue("loc_info")[i], founder_info.getValue("founders")[i].pedigreeID,
+		                      paste(founder_info.getValue("founders")[i].xy)), append = T);
+   
+      }
+   
+      
+      for (i in seqLen(nrow(founder_info.getValue("location_mat") - 1)))
+      {
+		    writeFile(OUTPATH + "/" + OUTDIR + "/" + "location_centers_POSTBURNIN_" + SUFFIX + ".txt", 
+		              paste(SUBPOP,
+		              i, 
+		              founder_info.getValue("location_mat")[i,0], founder_info.getValue("location_mat")[i,1]), append = T);
+   
+      }
+	
+	   //currently randomizing the founder pairings
+	   founder_info.getValue("founders").tag = sample(1:length(founder_info.getValue("founders")),
+														           length(founder_info.getValue("founders")),
+														           replace = F);
+	
+	
+	  for (i in founder_info.getValue("founders"))
+	  {
+		    writeFile(OUTPATH + "/" + OUTDIR + "/" + "offspring_info_POSTBURNIN_" + SUFFIX + ".txt",
+				        paste(SUBPOP, i.tag, i.pedigreeID, i.pedigreeParentIDs, community.tick), append = T);
+	  }
+				 
+	
+	  //p2.takeMigrants(founder_indivs);
+	  sim.subpopulations[SUBPOP - 1].takeMigrants(founder_info.getValue("founders"));
+	
+	  cat(paste('Captive pop size:', sim.subpopulations[SUBPOP - 1].individualCount));
+	
+    //p1.setSpatialBounds(c(0.0, 0.0, WIDTH, HEIGHT)); //set spatial plane
+    //p1.individuals.setSpatialPosition(p1.pointUniform(p1.individualCount));
+    	
+    	
+    }
+}
+
+
+(START_TICK + 1): first() {
+	// preparation for the reproduction() callback
+	i2.evaluate(p1); //mate choice
+}
+
+
+(START_TICK + 1): reproduction() {
+	for (s in sim.subpopulations) {
+		
+		//reproduction for p1: the spatial subpopulation
+		if (s.id == 1) {
+			for (ind in s.individuals) {
+				mate = i2.drawByStrength(individual, 1);
+	         if (mate.size())
+	         	subpop.addCrossed(ind, mate, count=rpois(1, FECUN));
+			}
+		} else {
+			//reproduction for the remaining subpops: the 
+			m = PED[REPRO_TICK == (community.tick - START_TICK),];
+			
+			for (index in seqLen(nrow(m))) {
+				row = m[index,];
+				par1 = s.subsetIndividuals(tag=row[,1]); //1st parent
+				par2 = s.subsetIndividuals(tag=row[,2]); //2nd parent
+				child = s.addCrossed(par1, par2);
+				child.tag = row[,0];
+		
+				writeFile(OUTPATH + "/" + OUTDIR + "/" + "offspring_info_POSTBURNIN_" + SUFFIX + ".txt",
+							 paste(s.id, child.tag, child.pedigreeID, child.pedigreeParentIDs, community.tick),
+							 append = T);
+		   }
+		}
+	}
+   
+   self.active = 0;
+}
+
+
+(START_TICK + 1): early() {
+	// execute the predetermined mortality
+	inds = p2.individuals;
+	inds.fitnessScaling = 1.0;
+	
+	d = drop(DEATH[DEATH_TICK == community.tick - START_TICK, 0]);
+	indices = match(d, inds.tag);
+	inds[indices].fitnessScaling = 0.0;
+}
+
+
+(START_TICK + 1): early() {
+	// Disperse offspring
+	offspring = p1.subsetIndividuals(maxAge=0);
+	p1.deviatePositions(offspring, "reprising", INF, "n", sigma_disp);
+		
+	// Measure local density and use it for density regulation
+	i1.evaluate(p1);
+	competition = i1.localPopulationDensity(offspring);
+	offspring.fitnessScaling = 1/(1 + RHO * competition);
+	
+	adults = sim.subpopulations.subsetIndividuals(minAge=1);
+   adults.fitnessScaling = 0.0; //remove adults to make discrete generations (section 16.15)
+}
+
+
+(START_TICK + 1): late() {
+	if (p1.individualCount == 0) {
+		catn("Population went extinct! Ending the simulation.");
+		sim.simulationFinished();
+	}   
+   sim.treeSeqRememberIndividuals(sim.subpopulations.individuals, permanent=F);
+}
+
+
+RUNTIME late () { //end
+
+	print(paste('Ending size of wild pop:', p1.individualCount));
+	//print(paste('Ending size of pedigree pop:', p2.individualCount));
+	print(paste('Last tick:', community.tick));
+	
+	sim.treeSeqOutput(OUTPATH + "/" + OUTDIR + "/" + "POSTBURNIN_" + SUFFIX + ".trees", metadata=params);
+   catn("Simulation completed!");
+   sim.simulationFinished();
+}
+
+
+
+// ====================
+// CUSTOM FUNCTIONS ===
+// ====================
+function (+)readMatrix(s$ path, [string$ sep = ","])
+{
+	if (!fileExists(path))
+		stop("readMatrix(): File not found at path " + path);
+	df = readCSV(path, colNames=F, sep=sep);
+	m = df.asMatrix();
+	return m;
+}
+
+
+function(numeric) dist(numeric x, numeric y) 
+{
+ d = sqrt(sum((x - y)^2));
+ return d;
+}
+
+
+function(numeric) dist_compare(numeric focal_loc, numeric loc_mat)
+{
+
+ dist_vec = float(nrow(loc_mat));
+ for (i in 0:(nrow(loc_mat) - 1)) {
+	 dist_vec[i] = dist(focal_loc, loc_mat[i,]);
+ }
+	
+ return dist_vec;
+}
+
+
+function(logical) dist_threshold_check(numeric focal_loc, numeric loc_mat, numeric threshold)
+{
+ dists = dist_compare(focal_loc, loc_mat);
+ return any(dists < threshold);
+}
+
+
+function(lifso) sample_indivs(lifso inds, integer n, numeric apo, numeric x, numeric y) 
+{
+	
+ind_pool = inds[inds.x > x - apo & inds.x < x + apo & inds.y > y - apo & inds.y < y + apo];
+
+if (length(ind_pool) < n) {
+	return(c());
+} else {
+	return(sample(ind_pool, n, replace = F));
+}
+
+}
+
+
+function(lifso) sample_founders(lifso inds, 
+                                  numeric k_val, 
+                                  integer n_vec,
+                                  integer apo, 
+                                  numeric x_lim, 
+                                  numeric y_lim, 
+                                  numeric dist_threshold)
+{
+ 
+ loc_mat = matrix(rep(0.0, k_val*2), ncol=2);
+ founder_vec = c();
+ for (k in 0:(k_val - 1) ) {
+  if (k == 0) {
+  	 indiv_sample = c();
+  	 check0 = 0;
+  	 while (n_vec[k] != length(indiv_sample) & check0 <= 1000)
+  	 {
+  	  prop_loc = c(runif(1, x_lim[0], x_lim[1]), runif(1, y_lim[0], y_lim[1]) );
+  	  indiv_sample = sample_indivs(inds, n_vec[k], apo, prop_loc[0], prop_loc[1]);
+  	  check0 = check0 + 1; 
+  	 }
+  	 
+  	 if (n_vec[k] != length(indiv_sample)) {
+      stop(message = 'Unable to sample indivs in 1000 attempts.');
+    }
+  	 
+  	 founder_vec = c(founder_vec, indiv_sample);
+    loc_mat[k,] = prop_loc;
+    next;
+  }
+  
+  check = 0;
+  loc_check = T;
+  while (check <= 2000 & loc_check) {
+   prop_loc = c(runif(1, x_lim[0], x_lim[1]), runif(1, y_lim[0], y_lim[1]) );
+   dist_check = dist_threshold_check(prop_loc, loc_mat[0:(k - 1),], dist_threshold); 
+   
+   if (!dist_check) {
+     indiv_sample = sample_indivs(inds, n_vec[k], apo, prop_loc[0], prop_loc[1]);
+     if (n_vec[k] != length(indiv_sample)) {
+	    loc_check = T;
+     } 
+   }
+   
+   check = check + 1;
+  }
+ 
+  if (n_vec[k] != length(indiv_sample)) {
+   stop(message = 'Unable to find new source location after 2000 attempts.');
+  }
+  
+ founder_vec = c(founder_vec, indiv_sample);
+ loc_mat[k,] = prop_loc;
+ }
+  
+ output_dict = Dictionary("loc_info", repEach(0:(length(n_vec) - 1), n_vec), 
+                          "location_mat", loc_mat, 
+                          "founders", founder_vec);
+ 
+ // print out default values
+ catn("===========================");
+ catn("Model constants: " + output_dict.serialize("pretty"));
+ catn("===========================");
+ return output_dict;
+
+}
+
+
+
+// =============================
+// CODE NOT CURRENTLY IN USE ===
+// =============================
+
+//(START_TICK + 1): reproduction(p1) {
+//	mate = i2.drawByStrength(individual, 1);
+//	if (mate.size())
+//		subpop.addCrossed(individual, mate, count=rpois(1, FECUN));
+//}
+
+//(START_TICK + 1): reproduction(p2) {				 
+//				 	
+//	// generate all offspring for the tick
+//	m = PED[REPRO_TICK == (community.tick - START_TICK),];
+//	//print('m');
+//	//print(m);
+	
+//	for (index in seqLen(nrow(m))) {
+//		row = m[index,];
+//		par1 = subpop.subsetIndividuals(tag=row[,1]); //1st parent
+//		par2 = subpop.subsetIndividuals(tag=row[,2]); //2nd parent
+//		child = subpop.addCrossed(par1, par2);
+//		child.tag = row[,0];
+		
+//		writeFile(OUTPATH + "/" + OUTDIR + "/" + "offspring_info_POSTBURNIN" + SUFFIX + ".txt",
+//				 paste(child.tag, child.pedigreeID, child.pedigreeParentIDs, community.tick), append = T);
+				 
+//	}
+//	
+// 	self.active = 0;
+//}
+
+
+//function (void)setupParams(object<Dictionary>$ defaults)
+//{
+//	if (!exists("PARAMFILE")) defineConstant("PARAMFILE", "./params.json");
+//	if (!exists("OUTDIR")) defineConstant("OUTDIR", ".");
+//	defaults.addKeysAndValuesFrom(Dictionary("PARAMFILE", PARAMFILE, "OUTDIR", OUTDIR));
+//	
+//	if (fileExists(PARAMFILE)) {
+//		defaults.addKeysAndValuesFrom(Dictionary(readFile(PARAMFILE)));
+//		defaults.setValue("READ_FROM_PARAMFILE", PARAMFILE);
+//	}
+//	
+//	defaults.setValue("OUTBASE", OUTDIR + "/out_" +	defaults.getValue("SEED"));
+//	defaults.setValue("OUTPATH", defaults.getValue("OUTBASE") + ".trees");
+//	
+//	for (k in defaults.allKeys) {
+//		if (!exists(k))
+//			defineConstant(k, defaults.getValue(k));
+//		else
+//			defaults.setValue(k, executeLambda(k + ";"));
+//	}
+//	
+//	// print out default values
+//	catn("===========================");
+//	catn("Model constants: " + defaults.serialize("pretty"));
+//	catn("===========================");
+//}
