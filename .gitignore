@@ -3,3 +3,5 @@ tmp
 *.trees
 .ipynb_checkpoints
 *.nwk
+.Rhistory
+Thumbs.db
