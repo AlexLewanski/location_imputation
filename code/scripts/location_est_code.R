@@ -166,6 +166,28 @@ calc_cond_mean <- function(covar_12, inv_covar22,
   )
 }
 
+calc_cond_var_elements <- function(kron_varcovar_ratemat,
+                                   no_ind,
+                                   yes_ind) {
+
+  covar_11 <- kron_varcovar_ratemat[no_ind,no_ind]
+  covar_12 <- kron_varcovar_ratemat[no_ind,yes_ind]
+  inv_covar_22 <- solve(kron_varcovar_ratemat[yes_ind,yes_ind])
+  covar_21 <- kron_varcovar_ratemat[yes_ind,no_ind]
+
+  #cond_mean <- mean1 + (covar_12 %*% solve(covar_22) %*% (trait_vec -  mean2))
+  #cond_var <- covar_11 - covar_12%*%inv_covar_22%*%covar_21
+
+  return(list(
+    covar_11 = covar_11,
+    covar_12 = covar_12,
+    inv_covar_22 = inv_covar_22,
+    covar_21 = covar_21,
+    cond_var = covar_11 - covar_12%*%inv_covar_22%*%covar_21
+  ))
+
+  } 
+
 
 calc_cond_distr <- function(tree_covar, brown_rate_mat, root_coords, trait_mat, missing_inds) {
   
@@ -743,25 +765,6 @@ cond_log_lik_wrapper <- function(cond_list,
 # }
 # 
 # 
-# calc_cond_var_elements <- function(kron_varcovar_ratemat, 
-#                                    no_ind, 
-#                                    yes_ind) {
-#   
-#   covar_11 <- kron_varcovar_ratemat[no_ind,no_ind]
-#   covar_12 <- kron_varcovar_ratemat[no_ind,yes_ind]
-#   inv_covar_22 <- solve(kron_varcovar_ratemat[yes_ind,yes_ind])
-#   covar_21 <- kron_varcovar_ratemat[yes_ind,no_ind]
-#   
-#   #cond_mean <- mean1 + (covar_12 %*% solve(covar_22) %*% (trait_vec -  mean2))
-#   #cond_var <- covar_11 - covar_12%*%inv_covar_22%*%covar_21
-#   
-#   return(list(
-#     covar_11 = covar_11,
-#     covar_12 = covar_12,
-#     inv_covar_22 = inv_covar_22,
-#     covar_21 = covar_21,
-#     cond_var = covar_11 - covar_12%*%inv_covar_22%*%covar_21
-#   ))
 #   
 # }
 # 
