@@ -285,6 +285,16 @@ weighted_least_squares <- function(A, Sigma_list, mu) {
   return(elementone %*% elementtwo)
 }
 
+# weighted_least_squares_softassign <- function(A, weight_mat, Sigma_list, mu) {
+#   #recover()
+#   sigma_inv <- as.matrix(Matrix::bdiag(lapply(Sigma_list, solve)))
+#   sigma_weight_mat <- sigma_inv*weight_mat #this should be elementwise multiplication I think
+#   elementone <- solve(t(A)%*%sigma_weight_mat%*%A)
+#   elementtwo <- t(A)%*%sigma_weight_mat%*%mu
+#   
+#   return(elementone %*% elementtwo)
+# }
+
 
 
 condition_mvn <- function(mu, V, A) {
@@ -301,6 +311,7 @@ condition_mvn <- function(mu, V, A) {
 }
 
 
+#can probably delete. Not currently in use. 
 cond_log_lik_fixed_mean <- function(cond_list,
                                     prep_list,
                                     params,
@@ -321,7 +332,7 @@ cond_log_lik_fixed_mean <- function(cond_list,
 
 
 
-  
+#can probably delete. Not currently in use.  
 cond_log_lik_wrapper <- function(cond_list, 
                                  prep_list, 
                                  params, 
@@ -350,6 +361,477 @@ cond_log_lik_wrapper <- function(cond_list,
              )
            })
   )
+}
+
+
+
+##############################################
+### FUNCTIONS FOR EXPECTATION-MAXIMIZATION ###
+##############################################
+
+em_hardassign <- function(cond_mean, cond_var, k, max_stp, conv_thresh, sp_bounds, starting_location_seed = NULL) {
+  
+  #recover()
+  
+  #=======================
+  #=== FUNCTION SET-UP ===
+  #=======================
+  
+  tree_count <- length(cond_mean)
+  
+  #matrix of all pairwise location combos
+  #group_pairs <- expand.grid(x1 = 1:K, x2 = 1:K)
+  
+  #initialize node membership vec
+  group_vec <- rep(1, times = tree_count*2)
+  
+  #counter for location initialization
+  init_counter <- 1
+  
+  #lists to store things
+  zvec_list <- list() #node membership vectors
+  xvec_list <- list() #location coordinate matrices
+  
+  #all_lik_list <- list()
+  
+  loglik_list <- list()
+  loglik_list[[1]] <- NA
+  
+  
+  #===============================
+  #=== LOCATION INITIALIZATION ===
+  #===============================
+  
+  repeat {
+    set.seed(starting_location_seed)
+    Xold <- as.vector(t(cbind(runif(k,min=sp_bounds$x[1],max=sp_bounds$x[2]),
+                              runif(k,min=sp_bounds$y[1],max=sp_bounds$y[2]))))
+    set.seed(NULL)
+    if (k == 1) break
+    
+    group_info_list <- list()
+    for (i in seq_len(tree_count)) {
+      lik_info <- logL_groupmat(Xmat = matrix(Xold, ncol = 2, byrow = TRUE), 
+                                group_count = k, 
+                                cond_mean[[i]], 
+                                cond_var[[i]],
+                                normalize = FALSE)
+      #find the node location pairing that maximizes the likelihood
+      group_info_list[[i]] <- which(lik_info == max(lik_info), arr.ind = TRUE)[1,]
+    }
+    
+    group_vec <- unlist(group_info_list) #vector version of node memberships
+    
+    init_counter <- init_counter + 1
+    
+    if (length(unique(group_vec)) == k) {
+      break # Exit the loop if the condition is no longer met
+    }
+    
+    if (init_counter >= 500) stop('Coordination initialization failed.')
+  }
+  
+  message("Initialization attempts: ", init_counter)
+  
+  
+  #initial param vals
+  #zvec_list[[1]] <- group_vec
+  zvec_list[[1]] <- NA
+  xvec_list[[1]] <- Xold
+  
+  
+  
+  #================
+  #=== EM ITERS ===
+  #================
+  stp <- 2
+  
+  while (stp < max_stp) {
+    
+    ### EXPECTATION: given location coordinates, what are the node location memberships? ###
+    group_info_list <- list()
+    # group_like <- list()
+    for (i in seq_len(tree_count)) {
+      lik_info <- logL_groupmat(Xmat = matrix(Xold, ncol = 2, byrow = TRUE),
+                                group_count = k,
+                                cond_mean[[i]],
+                                cond_var[[i]],
+                                normalize = FALSE)
+      #find the node location pairing that maximizes the likelihood
+      group_info_list[[i]] <- which(lik_info == max(lik_info), arr.ind = TRUE)[1,]
+      
+      # group_like[[i]] <- logL_groupmat(X = matrix(Xold, ncol = 2, byrow = TRUE), 
+      #                                                        group_count = k, 
+      #                                                        cond_mean[[i]], 
+      #                                                        cond_var[[i]],
+      #                                                      normalize = FALSE)
+      # group_info_list[[i]] <- which(group_like[[i]] == max(group_like[[i]]), arr.ind = TRUE)[1,]
+      
+    }
+    
+    #all_lik_list[[stp]] <- group_like
+    
+    group_vec <- unlist(group_info_list) #vector version of node memberships
+    
+    
+    ### MAXIMIZATION: DERIVE NEW GROUP COORDINATES USING THE WEIGHTS ###
+    #I'm currently doing this by finding the generalized least squares solution
+    #based on the node memberships found during the expectation step
+    Xnew <- as.vector(weighted_least_squares(multigroup_design(max_group = k,  group_vec), 
+                                             Sigma_list = cond_var, 
+                                             mu = unlist(cond_mean)))
+    
+    
+    #list of all log likelihoods using the new parameter values
+    like_list <- logL_groupmat_multitree(Xvec = Xnew, 
+                                         group_count = k, 
+                                         cond_mean_list = cond_mean, 
+                                         cond_var_list = cond_var, 
+                                         normalize = FALSE)
+    
+    #add new parameter vals to x_vec and assign Xnew to Xold
+    xvec_list[[stp]] <- Xnew
+    Xold <- Xnew
+    
+    zvec_list[[stp]] <- group_vec
+    
+    #the observed data log-likelihood is calculated by 
+    #(1) summing the likelihoods (not log likelihoods) within trees
+    #(2) taking the log of the summed likelihood for each tree
+    #(3) summing the log summed likelihood across trees
+    loglik_list[[stp]] <- sum(unlist(lapply(like_list, function(x) {log(sum(exp(x)))}))) #sum(unlist(like_list)) #log likelihood
+    
+    message(paste0('iter ', stp, '; loglik = ', loglik_list[[stp]]))
+    
+    
+    ### CHECKS FOR THE NEXT ITER ###
+    # proceed to next iter if this was the first iter
+    if (stp == 2) {
+      stp <- stp + 1
+      next
+    }
+    
+    #if the current lik is less than the previous lik, throw an error
+    if (loglik_list[[stp]] < loglik_list[[stp - 1]] ) {
+      warning('The likelihood decreased!')
+      
+      # return(
+      #   list(
+      #     newlik = loglik_list[[stp]],
+      #     oldlik = loglik_list[[stp - 1]],
+      #     zvec_list = zvec_list,
+      #     xvec_list = xvec_list
+      #   )
+      # )
+      
+    }
+    
+    #if the difference in log liks is below the stopping threshold, break out of loop
+    loglik_dif <- loglik_list[[stp]] - loglik_list[[stp - 1]]
+    if ( loglik_dif <= conv_thresh & loglik_dif > 0 ) {
+      convergence <- TRUE
+      break
+    }
+    #################################
+    
+    stp <- stp + 1
+  }
+  
+  return(
+    list(X = Xnew,
+         xvec_list = xvec_list,
+         iter_count = stp,
+         group_membership_list = zvec_list,
+         like_vec = unlist(loglik_list),
+         loglik = loglik_list[[length(loglik_list)]])
+  )
+}
+
+
+em_softassign <- function(cond_mean, 
+                          cond_var, 
+                          k, 
+                          max_stp, 
+                          conv_thresh, 
+                          sp_bounds, 
+                          starting_location_seed = NULL) {
+  
+  #recover()
+  
+  #=======================
+  #=== FUNCTION SET-UP ===
+  #=======================
+  tree_count <- length(cond_mean) #number of trees
+  
+  #lists to store things
+  weight_list <- list() #node membership vectors
+  weight_list[[1]] <- NA
+  
+  xvec_list <- list() #location coordinate matrices
+  loglik_list <- list()
+  loglik_list[[1]] <- NA
+  
+  q_list <- list()
+  
+  convergence <- FALSE
+  
+  
+  
+  #===============================
+  #=== LOCATION INITIALIZATION ===
+  #===============================
+  
+  #set.seed(3543)
+  #currently doing this in the simplest way possible: uniformly sampling across
+  #the area defined by sp_bounds
+  set.seed(starting_location_seed)
+  Xold <- as.vector(t(cbind(runif(k, min = sp_bounds$x[1], max = sp_bounds$x[2]),
+                            runif(k, min = sp_bounds$y[1], max = sp_bounds$y[2]))))
+  set.seed(NULL)
+  #initial param vals
+  xvec_list[[1]] <- Xold
+  
+  
+  
+  #================
+  #=== EM ITERS ===
+  #================
+  stp <- 2
+  
+  while(stp < max_stp){
+    
+    ### EXPECTATION: given location coordinates, what are the node location memberships? ###
+    pair_w_list <- logL_groupmat_multitree(Xvec = Xold, #matrix(Xold, ncol = 2, byrow = TRUE), 
+                                           group_count = k, 
+                                           cond_mean_list = cond_mean, 
+                                           cond_var_list = cond_var, 
+                                           normalize = TRUE)
+    
+    
+    ### MAXIMIZATION: DERIVE NEW GROUP COORDINATES USING THE WEIGHTS ###
+    #I'm currently doing this by maximizing the product of likelihood calculated
+    #across all possible latent variable (location membership) states and the
+    #corresponding responsibilities
+    #maximizing the expected complete-data log-likelihood
+    m_val <- optim(
+      par = Xold, #starting parameter values at Xold 
+      fn = m_step,
+      r_list= pair_w_list, 
+      cond_mean_list = cond_mean, 
+      cond_var_list = cond_var,
+      group_count = k,
+      method = "BFGS",
+      control = c(maxit = 1000)
+    )
+    
+    message('convergence: ', m_val$convergence)
+    message('message: ', m_val$message)
+    Xnew <- m_val$par
+    
+    qnew <- m_step(param = Xnew, 
+                   r_list = pair_w_list, 
+                   cond_mean_list = cond_mean, 
+                   cond_var_list = cond_var, 
+                   group_count = k)
+    
+    #The observed-data likelihood does the opposite
+    #list of all log likelihoods using the new parameter values
+    like_list <- logL_groupmat_multitree(Xvec = Xnew, #matrix(Xnew, ncol = 2, byrow = TRUE), 
+                                         group_count = k, 
+                                         cond_mean_list = cond_mean, 
+                                         cond_var_list = cond_var, 
+                                         normalize = FALSE)
+    
+    #add new parameter vals to x_vec and assign Xnew to Xold
+    xvec_list[[stp]] <- Xnew
+    q_list[[stp]] <- qnew
+    Xold <- Xnew
+    
+    weight_list[[stp]] <- pair_w_list #list of pairwise responsibilities
+    
+    #the observed data log-likelihood is calculated by 
+    #(1) summing the likelihoods (not log likelihoods) within trees
+    #(2) taking the log of the summed likelihood for each tree
+    #(3) summing the log summed likelihood across trees
+    loglik_list[[stp]] <- sum(unlist(lapply(like_list, function(x) {log(sum(exp(x)))}))) #sum(unlist(like_list)) #log likelihood
+    
+    message(paste0('iter ', stp, '; loglik = ', loglik_list[[stp]]))
+    
+    
+    ### CHECKS FOR THE NEXT ITER ###
+    # proceed to next iter if this was the first iter
+    if (stp == 2) {
+      stp <- stp + 1
+      next
+    }
+    
+    #if the current lik is less than the previous lik, throw an error
+    if (loglik_list[[stp]] < loglik_list[[stp - 1]] ) {
+      message('The likelihood decreased. Halting estimation and outputting some info.')
+      
+      return(
+        list(
+          newlik = loglik_list[[stp]],
+          oldlik = loglik_list[[stp - 1]],
+          weight_list = weight_list,
+          xvec_list = xvec_list,
+          q_list = q_list
+        )
+      )
+      
+    }
+    
+    #if the difference in log liks is below the stopping threshold, break out of loop
+    if ( (loglik_list[[stp]] - loglik_list[[stp - 1]]) <= conv_thresh) {
+      convergence <- TRUE
+      break
+    }
+    #################################
+    
+    stp <- stp + 1
+  }
+  
+  return(
+    list(X = Xnew, #final location estimate
+         loglik = loglik_list[[length(loglik_list)]], #final loglik
+         convergence = convergence,
+         xvec_list = xvec_list, #location estimates from each iter
+         weight_list = weight_list, #list of weights from each step
+         like_vec = unlist(loglik_list), #log liks from each step of EM
+         iter_count = stp, #number of iters,
+         q_list = q_list
+    )
+  )
+  
+}
+
+
+multigroup_design <- function(max_group, node_membership) {
+  design_mat <- matrix(0, 
+                       nrow = length(node_membership)*2, 
+                       ncol = max_group*2)
+  
+  #based on the group membership
+  #design matrix is organized as: x1, y1, x2, y2, x3, y3, x4, y4
+  groupind <- unlist(lapply(node_membership, function(x) c((x - 1)*2 + 1, (x - 1)*2 + 2)))
+  
+  #design_mat[cbind(1:(length(node_membership)*2), groupind)] <- 1
+  design_mat[cbind(seq_len(length(node_membership)*2), groupind)] <- 1
+  
+  return(design_mat)
+}
+
+
+m_step <- function(param, r_list, cond_mean_list, cond_var_list, group_count) {
+  ##m_step for the soft assign EM algorithm where you multiply the likelihoods
+  #by the corresponding responsibilities
+  
+  if (!is.vector(param) || length(param) != group_count*2) {
+    stop("param must be a vector with length equal to two times the group_count (2 corresponds to x and y coordinates per group).")
+  }
+  
+  Xmat <- matrix(param, ncol = 2, byrow = TRUE)
+  
+  log_like_list_r <- list()
+  for (TREE in seq_along(cond_mean_list)) {
+    log_like_list_r[[TREE]] <- logL_groupmat(Xmat = Xmat, 
+                                             group_count = group_count, 
+                                             cond_mean_list[[TREE]], 
+                                             cond_var_list[[TREE]],
+                                             normalize = FALSE)*r_list[[TREE]]
+  }
+  
+  -sum(unlist(log_like_list_r))
+}
+
+
+
+normalize_loglik <- function(loglik_mat) {
+  #NORMALIZE: normalize the likelihoods so that they sum to 1. Because we are
+  #initially calculating log likelihoods, I am using the log-sum-exp approach to
+  #avoid underflow issues
+  #https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
+  m <- max(loglik_mat)
+  m1 <- m + log(sum(exp(loglik_mat - m)))
+  
+  return(exp(loglik_mat - m1))
+}
+
+
+
+logL_groupmat_multitree <- function(Xvec, 
+                                    group_count, 
+                                    cond_mean_list, 
+                                    cond_var_list, 
+                                    normalize = FALSE) {
+  
+  if (!is.vector(Xvec) || length(Xvec) != group_count*2) {
+    stop("X must be a matrix with 2 columns and group_count rows.")
+  }
+  
+  Xmat <- matrix(Xvec, ncol = 2, byrow = TRUE)
+  output_list <- list()
+  for (i in seq_along(cond_mean_list)) {
+    
+    #normalizing so that the responsibilities all sum to 1. This is simply done
+    #by dividing each likelihood by the total sum of likelihoods
+    output_list[[i]] <- logL_groupmat(Xmat = Xmat, 
+                                      group_count = group_count, 
+                                      cond_mean = cond_mean_list[[i]], 
+                                      cond_var = cond_var_list[[i]],
+                                      normalize = normalize)
+  }
+  return(output_list)
+}
+
+
+
+
+logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FALSE) {
+  #recover()
+  if (!is.matrix(Xmat) || ncol(Xmat) != 2 || nrow(Xmat) != group_count) {
+    stop("X must be a matrix with 2 columns and group_count rows.")
+  }
+  
+  #QUESTIONS:
+  # - the conditional variance/covariance is slighly non-symmetrical. Why is this?
+  #   Is this just a precision problem? Currently, I'm dealing with this by
+  #   forcing the matrix to be symmetric, but this might be me ignoring a bigger
+  #   issue with my conditional variance calculation.
+  
+  
+  #matrix to hold loglik values. The matrix is organized with node 1 along the
+  #rows and node 2 along the columns and the locations indexed by the column and row
+  #indices (e.g., location 1 for node 1 is in row 1; location 1 for node 2 is column 1)
+  #For k = 2, the matrix is organized as:
+  ##  ________________________    ________________________
+  ##| (node1-loc1; node2-loc1)    (node1-loc1; node2-loc2) |
+  ##| (node1-loc2; node2-loc1)    (node1-loc2; node2-loc2) |
+  ##  ________________________    ________________________
+  
+  like_mat <- matrix(data = 0, nrow = group_count, ncol = group_count)
+  
+  for (NODE1 in seq_len(group_count)) {
+    for (NODE2 in seq_len(group_count)) {
+      #I'm sacrificing concision here for the sake of readability. We are
+      #evaluating the probability at c(x_node1, y_node1, x_node2, y_node2). A one
+      #line version to sub into x argument of mvtnorm::dmvnorm is: as.vector(t(X[c(NODE1, NODE2),]))
+      NODE1_coords <- Xmat[NODE1,]
+      NODE2_coords <- Xmat[NODE2,]
+      like_mat[NODE1, NODE2] <- mvtnorm::dmvnorm(x = c(NODE1_coords, NODE2_coords),
+                                                 mean = cond_mean,
+                                                 sigma = as.matrix(Matrix::forceSymmetric(cond_var)),
+                                                 log=TRUE)
+    }
+  }
+  
+  #NORMALIZE: normalize the likelihoods so that they sum to 1. Because we are
+  #initially calculating log likelihoods, I using the log-sum-exp approach to
+  #avoid underflow issues
+  #https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
+  if (isTRUE(normalize)) return(normalize_loglik(loglik_mat = like_mat))
+  
+  return(like_mat)
 }
 
 
@@ -1079,4 +1561,221 @@ cond_log_lik_wrapper <- function(cond_list,
 #     ) %*% t(design_mat) %*% vcv_inv %*% trait_vec
 #   )
 #   
+# }
+
+# em_hardassign <- function(cond_mean, cond_var, k, max_stp, conv_thresh, sp_bounds, starting_location_seed = NULL) {
+#   
+#   recover()
+#   
+#   #=================
+#   #=== EM SET-UP ===
+#   #=================
+#   
+#   tree_count <- length(cond_mean)
+#   
+#   #matrix of all pairwise location combos
+#   #group_pairs <- expand.grid(x1 = 1:K, x2 = 1:K)
+#   
+#   #initialize node membership vec
+#   group_vec <- rep(1, times = tree_count*2)
+#   
+#   #counter for location initialization
+#   init_counter <- 1
+#   
+#   #lists to store things
+#   zvec_list <- list() #node membership vectors
+#   xvec_list <- list() #location coordinate matrices
+#   
+#   loglik_list <- list()
+#   loglik_list[[1]] <- NA
+#   
+#   
+#   #===============================
+#   #=== LOCATION INITIALIZATION ===
+#   #===============================
+#   
+#   repeat {
+#     set.seed(starting_location_seed)
+#     Xold <- as.vector(t(cbind(runif(k,min=sp_bounds$x[1],max=sp_bounds$x[2]),
+#                               runif(k,min=sp_bounds$y[1],max=sp_bounds$y[2]))))
+#     set.seed(NULL)
+#     if (k == 1) break
+#     
+#     
+#     #An "dummy" expectation step to make sure all groups are represented in the
+#     #initial groupings. This initial coordinate generation step is repeated until
+#     #this is achieved
+#     group_info_list <- list()
+#     for (i in seq_len(tree_count)) {
+#       
+#       lik_info <- logL_groupmat(Xmat = matrix(Xold, ncol = 2, byrow = TRUE), 
+#                                 group_count = k, 
+#                                 cond_mean[[i]], 
+#                                 cond_var[[i]],
+#                                 normalize = FALSE)
+#       
+#       group_info_list[[i]] <- which(lik_info == max(lik_info), arr.ind = TRUE)[1,]
+#     }
+#     
+#     #vector version of node memberships
+#     group_vec <- unlist(group_info_list)
+#     
+#     init_counter <- init_counter + 1
+#     
+#     if (length(unique(group_vec)) == k) {
+#       break # Exit the loop if the condition is no longer met
+#     }
+#   }
+#   
+#   message("Initialization attempts: ", init_counter)
+#   
+#   
+#   #initial param vals
+#   #zvec_list[[1]] <- group_vec
+#   zvec_list[[1]] <- NA
+#   xvec_list[[1]] <- Xold
+#   
+#   
+#   
+#   #================
+#   #=== EM ITERS ===
+#   #================
+#   stp <- 2
+#   
+#   while(stp < max_stp){
+#     
+#     ### EXPECTATION: given location coordinates, what are the node location memberships? ###
+#     group_info_list <- list()
+#     for (i in seq_len(tree_count)) {
+#       
+#       lik_info <- logL_groupmat(Xmat = matrix(Xold, ncol = 2, byrow = TRUE), 
+#                                 group_count = k, 
+#                                 cond_mean[[i]], 
+#                                 cond_var[[i]],
+#                                 normalize = FALSE)
+#       
+#       group_info_list[[i]] <- which(lik_info == max(lik_info), arr.ind = TRUE)[1,]
+#     }
+#     
+#     group_vec <- unlist(group_info_list)
+#     
+#     
+#     ### MAXIMIZATION: DERIVE NEW GROUP COORDINATES USING THE WEIGHTS ###
+#     #I'm currently doing this by maximizing the product of likelihood calculated
+#     #across all possible latent variable (location membership) states and the
+#     #corresponding responsibilities
+#     #maximizing the expected complete-data log-likelihood
+#     Xnew <- matrix(weighted_least_squares(multigroup_design(max_group = k,  group_vec), 
+#                                           Sigma_list = cond_var, 
+#                                           mu = unlist(cond_mean)
+#     ), ncol = 2, byrow = TRUE)
+#     
+#     #list of all log likelihoods using the new parameter values
+#     like_list <- logL_groupmat_multitree(Xnew, 
+#                                          group_count = k, 
+#                                          cond_mean_list = cond_mean, 
+#                                          cond_var_list = cond_var, 
+#                                          normalize = FALSE)
+#     
+#     #add new parameter vals to x_vec and assign Xnew to Xold
+#     xvec_list[[stp]] <- Xnew
+#     Xold <- Xnew
+#     
+#     zvec_list[[stp]] <- group_vec
+#     
+#     #the observed data log-likelihood is calculated by 
+#     #(1) summing the likelihoods (not log likelihoods) within trees
+#     #(2) taking the log of the summed likelihood for each tree
+#     #(3) summing the log summed likelihood across trees
+#     loglik_list[[stp]] <- sum(unlist(lapply(like_list, function(x) {log(sum(exp(x)))}))) #sum(unlist(like_list)) #log likelihood
+#     
+#     message(paste0('iter ', stp, '; loglik = ', loglik_list[[stp]]))
+#     
+#     
+#     ### CHECKS FOR THE NEXT ITER ###
+#     # proceed to next iter if this was the first iter
+#     if (stp == 2) {
+#       stp <- stp + 1
+#       next
+#     }
+#     
+#     #if the current lik is less than the previous lik, throw an error
+#     if (loglik_list[[stp]] < loglik_list[[stp - 1]] ) {
+#       message('The likelihood decreased. Halting estimation and outputting some info.')
+# 
+#       return(
+#         list(
+#           newlik = loglik_list[[stp]],
+#           oldlik = loglik_list[[stp - 1]],
+#           zvec_list = zvec_list,
+#           xvec_list = xvec_list
+#         )
+#       )
+# 
+#     }
+# 
+#     #if the difference in log liks is below the stopping threshold, break out of loop
+#     if ( (loglik_list[[stp]] - loglik_list[[stp - 1]]) <= conv_thresh) {
+#      convergence <- TRUE
+#      break
+#     }
+#     #################################
+#     
+#     stp <- stp + 1
+#   }
+#   
+#   return(
+#     list(X = Xnew,
+#          xvec_list = xvec_list,
+#          iter_count = stp,
+#          group_membership_list = zvec_list,
+#          like_vec = unlist(loglik_list),
+#          loglik = loglik_list[[length(loglik_list)]])
+#   )
+# }
+
+# multigroup_design_softassign <- function(node_count, max_group) {
+#   design_mat <- matrix(0, 
+#                        nrow = length(node_count)*2, 
+#                        ncol = max_group*2)
+#   design_mat[seq(1, nrow(design_mat), by = 2),seq(1, ncol(design_mat), by = 2)] <- 1
+#   design_mat[seq(2, nrow(design_mat), by = 2),seq(2, ncol(design_mat), by = 2)] <- 1
+#   #design matrix is organized as: x1, y1, x2, y2, x3, y3, x4, y4
+#   return(design_mat)
+# }
+
+# lnL <- function(X,nTrees,condMeans,condVars){
+#   lnLs <- sapply(seq_len(nTrees),
+#                  function(i){
+#                    mvtnorm::dmvnorm(x=X,
+#                                     mean=condMeans[i,],
+#                                     sigma=diag(rep(condVars[i],2)),
+#                                     log=TRUE)
+#                  })
+#   return(lnLs)
+# }
+
+# group_logL_single <- function(X,condMean,condVar){
+#   return(
+#     mvtnorm::dmvnorm(x=X,
+#                      mean=condMean,
+#                      sigma=as.matrix(Matrix::forceSymmetric(condVar)),
+#                      log=TRUE)
+#   )
+# }
+
+
+# logL_group <- function(X, group_pairs, condMean, condVar){
+#   #recover()
+#   like_vec <- vector(mode = 'numeric', nrow(group_pairs))
+#   for (i in 1:nrow(group_pairs)) {
+#     #as.vector(t(X[unlist(group_pairs[2,]),])) --> vector of coordinates from the locations
+#     #indexed using the group_pairs table
+#     like_vec[i] <- mvtnorm::dmvnorm(x=as.vector(t(X[unlist(group_pairs[i,]),])),
+#                                     mean=condMean,
+#                                     sigma=as.matrix(Matrix::forceSymmetric(condVar)),
+#                                     log=TRUE)
+#   }
+#   
+#   return(like_vec)
 # }
