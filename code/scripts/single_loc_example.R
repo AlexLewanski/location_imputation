@@ -13,7 +13,7 @@ library(ggplot2)
 library(ape)
 #library(phytools)
 
-source('/Users/alexlewanski/Documents/michigan_state/research/location_imputation/code/scripts/location_est_code.R')
+source(here('code', 'scripts', 'location_est_code.R'))
 
 
 #######################
@@ -22,25 +22,27 @@ source('/Users/alexlewanski/Documents/michigan_state/research/location_imputatio
 
 #true_rate_mat <- diag(4, nrow = 2)
 
-files_vec <- list.files('/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/test_notracking/', full.names = TRUE)
+
+files_vec <- list.files(here('simulation_output', 'test_notracking'), full.names = TRUE)
 tree_list <- lapply(files_vec[grep(".*nwk$", files_vec)],
                     function(x) ape::read.tree(x)) 
 
 
-indiv_node_info <- read.delim(here('/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/test_notracking/indiv_node_info.txt'), header = TRUE)
+indiv_node_info <- read.delim(here('simulation_output', 'test_notracking', 'indiv_node_info.txt'), header = TRUE)
 indiv_node_info$n_node <- paste0('n', indiv_node_info$node)
 
+#let's just use 75 trees for the example
 tree_list_subset1 <- tree_list[1:75]
 
 
 
-############################
-### ESTIMATING LOCATIONS ###
-############################
+####################################################################
+### DEMONSTRATION OF LOCATION ESTIMATION FOR A SINGLE INDIVIDUAL ###
+####################################################################
 
 ### EXAMPLE FOR ONE INDIVIDUAL ###
 #let's pick an individual to use as the unknown individual 
-MISSING_INDIV <- 40
+MISSING_INDIV <- 29
 MISSING_NODES <- indiv_node_info$n_node[indiv_node_info$indiv == MISSING_INDIV]
 
 #the location information for the georeferenced individuals (unknown individual is removed)
@@ -110,7 +112,43 @@ weighted_least_squares(create_design(unlist(lapply(multi_tree_test, function(x) 
 
 
 
-### EXAMPLE FOR A BUNCH OF INDIVIDUALS ###
+### EXAMPLE FOR ONE INDIVIDUAL: ESTIMATION VIA THE EM FUNCTIONS ###
+
+cond_var_list <- lapply(multi_tree_test, function(x) x$cond_distr$condvar)
+cond_mean_list <- lapply(multi_tree_test, function(x) x$cond_distr$condmean)
+
+#hard assign EM
+em_singleloc_hardassign <- em_hardassign(cond_mean = cond_mean_list, 
+                                 cond_var = cond_var_list, 
+                                 k = 1, 
+                                 max_stp = 5, 
+                                 conv_thresh = 1e-10, 
+                                 sp_bounds = list(x = c(-5, 105), 
+                                                  y = c(-5, 105)),
+                                 starting_location_seed = NULL
+)
+
+#soft assign EM
+em_singleloc_softassign <- em_softassign(cond_mean = cond_mean_list, 
+                                         cond_var = cond_var_list, 
+                                         k = 1, 
+                                         max_stp = 5, 
+                                         conv_thresh = 1e-10, 
+                                         sp_bounds = list(x = c(-5, 105), 
+                                                          y = c(-5, 105)),
+                                         starting_location_seed = NULL
+)
+
+#same estimates as the other approaches
+em_singleloc_hardassign$X
+em_singleloc_softassign$X
+
+
+
+#######################################################################
+### DEMONSTRATION OF LOCATION ESTIMATION FOR A BUNCH OF INDIVIDUALS ###
+#######################################################################
+
 tree_count <- 50
 indiv_count <- 75
 
