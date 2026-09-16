@@ -62,6 +62,18 @@ multi_tree_test <- process_trees(
   missing_inds = MISSING_NODES
 )
 
+# library(phytools)
+# x <- setNames(miss_info_mat[,2], rownames(miss_info_mat))
+# 
+# plotTree.barplot(
+#   tree_list_subset1[[1]],
+#   x,
+#   args.barplot = list(
+#     col = "steelblue",
+#     border = NA
+#   )
+# )
+
 
 
 ### EXAMPLE FOR ONE INDIVIDUAL: PRODUCT OF GAUSSIANS ###
