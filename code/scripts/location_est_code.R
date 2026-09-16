@@ -369,6 +369,99 @@ cond_log_lik_wrapper <- function(cond_list,
 ### FUNCTIONS FOR EXPECTATION-MAXIMIZATION ###
 ##############################################
 
+em_hardassign_wrapper <- function(times = 1,
+                                  cond_mean = cond_mean_list, 
+                                  cond_var = cond_var_list, 
+                                  k, 
+                                  max_stp = 20, 
+                                  conv_thresh = 1e-5, 
+                                  sp_bounds,
+                                  starting_location_seed = NULL) {
+  #need to fix seed
+  est_list <- list()
+  
+  for (est in seq_len(times)) {
+    est_list[[est]] <- em_hardassign(cond_mean = cond_mean, 
+                                     cond_var = cond_var, 
+                                     k = k, 
+                                     max_stp = max_stp, 
+                                     conv_thresh = conv_thresh, 
+                                     sp_bounds = sp_bounds,
+                                     starting_location_seed = starting_location_seed
+    )
+    message('finished ', est)
+  }
+  
+  #extract the likelihood vectors from each EM run
+  like_list <- lapply(est_list, function(x) x$like_vec)
+  
+  #find EM run with biggest likelihood
+  top_like_run <- which.max(sapply(like_list, function(x) max(x, na.rm = TRUE)))
+  
+  #in the biggest likelihood EM run, find the max likelihood index
+  max_iter <- which.max(like_list[[top_like_run]])
+  
+  return(
+    list(
+      top_run_index = top_like_run, #index of top EM run
+      top_iter_index = max_iter, #index of iter with highest likelihood in top EM run
+      top_lik = like_list[[top_like_run]][[max_iter]], #top likelihood
+      top_x = est_list[[top_like_run]]$xvec_list[[max_iter]], #top coordinates estimate
+      output_list = est_list #output from all the EM runs
+    )
+  )
+  
+}
+
+
+em_softassign_wrapper <- function(times = 1,
+                                  cond_mean = cond_mean_list, 
+                                  cond_var = cond_var_list, 
+                                  k, 
+                                  max_stp = 20, 
+                                  conv_thresh = 1e-5, 
+                                  sp_bounds,
+                                  starting_location_seed = NULL) {
+  
+  #recover()
+  
+  #need to fix seed
+  est_list <- list()
+  
+  for (est in seq_len(times)) {
+    est_list[[est]] <- em_softassign(cond_mean = cond_mean, 
+                                     cond_var = cond_var, 
+                                     k = k, 
+                                     max_stp = max_stp, 
+                                     conv_thresh = conv_thresh, 
+                                     sp_bounds = sp_bounds,
+                                     starting_location_seed = starting_location_seed
+    )
+    message('finished ', est)
+  }
+  
+  #extract the likelihood vectors from each EM run
+  like_list <- lapply(est_list, function(x) x$like_vec)
+  
+  #find EM run with biggest likelihood
+  top_like_run <- which.max(sapply(like_list, function(x) max(x, na.rm = TRUE)))
+  
+  #in the biggest likelihood EM run, find the max likelihood index
+  max_iter <- which.max(like_list[[top_like_run]])
+  
+  return(
+    list(
+      top_run_index = top_like_run, #index of top EM run
+      top_iter_index = max_iter, #index of iter with highest likelihood in top EM run
+      top_lik = like_list[[top_like_run]][[max_iter]], #top likelihood
+      top_x = est_list[[top_like_run]]$xvec_list[[max_iter]], #top coordinates estimate
+      output_list = est_list #output from all the EM runs
+    )
+  )
+  
+}
+
+
 em_hardassign <- function(cond_mean, cond_var, k, max_stp, conv_thresh, sp_bounds, starting_location_seed = NULL) {
   
   #recover()
@@ -538,12 +631,12 @@ em_hardassign <- function(cond_mean, cond_var, k, max_stp, conv_thresh, sp_bound
   }
   
   return(
-    list(X = Xnew,
+    list(final_x = Xnew,
+         final_loglik = loglik_list[[length(loglik_list)]],
          xvec_list = xvec_list,
          iter_count = stp,
          group_membership_list = zvec_list,
-         like_vec = unlist(loglik_list),
-         loglik = loglik_list[[length(loglik_list)]])
+         like_vec = unlist(loglik_list))
   )
 }
 
@@ -692,8 +785,8 @@ em_softassign <- function(cond_mean,
   }
   
   return(
-    list(X = Xnew, #final location estimate
-         loglik = loglik_list[[length(loglik_list)]], #final loglik
+    list(final_x = Xnew, #final location estimate
+         final_loglik = loglik_list[[length(loglik_list)]], #final loglik
          convergence = convergence,
          xvec_list = xvec_list, #location estimates from each iter
          weight_list = weight_list, #list of weights from each step
@@ -766,7 +859,7 @@ logL_groupmat_multitree <- function(Xvec,
                                     normalize = FALSE) {
   
   if (!is.vector(Xvec) || length(Xvec) != group_count*2) {
-    stop("X must be a matrix with 2 columns and group_count rows.")
+    stop("Xvec must be a matrix with 2 columns and group_count rows.")
   }
   
   Xmat <- matrix(Xvec, ncol = 2, byrow = TRUE)
@@ -790,7 +883,7 @@ logL_groupmat_multitree <- function(Xvec,
 logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FALSE) {
   #recover()
   if (!is.matrix(Xmat) || ncol(Xmat) != 2 || nrow(Xmat) != group_count) {
-    stop("X must be a matrix with 2 columns and group_count rows.")
+    stop("Xmat must be a matrix with 2 columns and group_count rows.")
   }
   
   #QUESTIONS:
