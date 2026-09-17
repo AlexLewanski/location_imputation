@@ -5,6 +5,12 @@
 #########################################################
 message('REQUIRED PACKAGES: MASS, Matrix, mvtnorm')
 
+################
+### OVERVIEW ###
+################
+#This script contains functions for estimating locations from genome-wide genealogies.
+#Other custom functions that are used for the project but are not directly involved
+#in the location inference are housed in custom_project_funcs.R.
 
 
 ###################################################
@@ -1872,3 +1878,163 @@ logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FA
 #   
 #   return(like_vec)
 # }
+
+# inferparams_kloc <- function(condMeans1,
+#                              condMeans2,
+#                              condVars1,
+#                              condVars2,
+#                              K,
+#                              spBounds,
+#                              maxStp=100,
+#                              init = c('random', 'kpp'),
+#                              conv_thresh = 1e-5){
+#   #recover()
+#   
+#   mean_check <- sapply(list(condMeans1, condMeans2), nrow)
+#   var_check <- sapply(list(condVars1, condVars2), length)
+#   if ( length(unique(c(mean_check, var_check))) != 1)
+#     stop('condMeans1, condMeans2, condVars1, and condVars2 all must be the same length.')
+#   
+#   nTrees <- nrow(condMeans1)
+#   init <- match.arg(init)
+#   
+#   lik_list <- list()
+#   Zvec_node1 <- list()
+#   Zvec_node2 <- list()
+#   
+#   Xvec <- list() #vector("list", length=maxStp)
+#   
+#   #z_list <- replicate(K, rep(1,nTrees), simplify = FALSE)
+#   Z_node1 <- rep(1,nTrees)
+#   Z_node2 <- rep(1,nTrees)
+#   
+#   #initialize
+#   init_iter <- 1
+#   while( (length(unique(Z_node1)) != K | length(unique(Z_node2)) != K) | K == 1){
+#     #while(any(sapply(z_list, function(x) length(unique(x)) == 1))) {
+#     # choose random initial locations for X
+#     
+#     if (init == 'random') {
+#       X <- cbind(runif(K,min=spBounds$x[1],max=spBounds$x[2]),
+#                  runif(K,min=spBounds$y[1],max=spBounds$y[2]))
+#     } else if (init == 'kpp') {
+#       X <- init_coord_generator(condMeans1, condMeans2, condVars1,condVars2, K = K, power = 3)
+#     }
+#     
+#     print(X)
+#     # calculate the likelihood of X given the conditional means/variances
+#     lik_mat1 <- apply(X, 1, function(x) lnL(x,nTrees,condMeans1,condVars1))
+#     #Z1 <- ifelse((lnX1A-lnX1B) > 0,1,2)
+#     Z_node1 <- apply(lik_mat1, 1, which.max)
+#     
+#     lik_mat2 <- apply(X, 1, function(x) lnL(x,nTrees,condMeans2,condVars2))
+#     #Z2 <- ifelse((lnX2A-lnX2B) > 0,1,2)
+#     Z_node2 <- apply(lik_mat2, 1, which.max)
+#     
+#     # assign each tree to one location or the other based on which has the higher likelihood
+#     if (K == 1) break
+#     init_iter <- init_iter + 1
+#   }
+#   message("Initialization attempts: ", init_iter)
+#   print(X)
+#   
+#   #initial param vals
+#   Xvec[[1]] <- X
+#   Zvec_node1[[1]] <- Z_node1
+#   Zvec_node2[[1]] <- Z_node2
+#   
+#   # the MLE of X_1 is the centroid of the conditional means that belong to group 1
+#   #X[1,] <- colMeans(rbind(condMeans1[Z1==1,]*invVarWts1[Z1==1],
+#   #                        condMeans2[Z2==1,]*invVarWts2[Z2==1]))
+#   # X[1,] <- colMeans(rbind(condMeans1[Z1==1,]*condVars1[Z1==1],
+#   #                         condMeans2[Z2==1,]*condVars2[Z2==1]))
+#   
+#   for (i in seq_len(K)) {
+#     X[i,] <- colSums(rbind(condMeans1[Z_node1==i,], condMeans2[Z_node2==i,])*calc_inv_weight(c(condVars1[Z_node1==i], condVars2[Z_node2==i])))
+#   }
+#   
+#   #param vals after first maximization step
+#   Xvec[[2]] <- X
+#   
+#   Zvec_node1[[2]] <- Z_node1
+#   Zvec_node2[[2]] <- Z_node2
+#   
+#   lik1 <- lnL_multigroup(X,nTrees,condMeans1,condVars1, Z_node1)
+#   lik2 <- lnL_multigroup(X,nTrees,condMeans2,condVars2, Z_node2)
+#   lik_list[[1]] <- NA
+#   lik_list[[2]] <- sum(c(lik1, lik2))
+#   
+#   # the MLE of X_2 is the centroid of the conditional means that belong to group 2
+#   ##X[2,] <- colMeans(rbind(condMeans1[Z1==2,]*invVarWts1[Z1==2],
+#   ##                        condMeans2[Z2==2,]*invVarWts2[Z2==2]))
+#   #X[2,] <- colSums(rbind(condMeans1[Z1==2,], condMeans2[Z2==2,])*calc_inv_weight(c(condVars1[Z1==2], condVars2[Z2==2])))
+#   
+#   stp <- 3
+#   # repeat the above until you hit a max step limit
+#   #	could also add something to diagnose convergence
+#   while(stp < maxStp){
+#     
+#     lik_mat1 <- apply(X, 1, function(x) lnL(x,nTrees,condMeans1,condVars1))
+#     #Z1 <- ifelse((lnX1A-lnX1B) > 0,1,2)
+#     Z_node1 <- apply(lik_mat1, 1, which.max)
+#     
+#     lik_mat2 <- apply(X, 1, function(x) lnL(x,nTrees,condMeans2,condVars2))
+#     #Z2 <- ifelse((lnX2A-lnX2B) > 0,1,2)
+#     Z_node2 <- apply(lik_mat2, 1, which.max)
+#     
+#     
+#     for (i in seq_len(K)) {
+#       X[i,] <- colSums(rbind(condMeans1[Z_node1==i,], condMeans2[Z_node2==i,])*calc_inv_weight(c(condVars1[Z_node1==i], condVars2[Z_node2==i])))
+#     }
+#     
+#     Zvec_node1[[stp]] <- Z_node1
+#     Zvec_node2[[stp]] <- Z_node2
+#     Xvec[[stp]] <- X
+#     
+#     lik1 <- lnL_multigroup(X,nTrees,condMeans1,condVars1, Z_node1)
+#     lik2 <- lnL_multigroup(X,nTrees,condMeans2,condVars2, Z_node2)
+#     lik_list[[stp]] <- sum(c(lik1, lik2))
+#     
+#     if ( (lik_list[[stp]] - lik_list[[stp - 1]]) <= conv_thresh)
+#       break
+#     
+#     stp <- stp + 1
+#   }
+#   
+#   
+#   return(
+#     list(X = X,
+#          Z1 = Z_node1,
+#          Z2 = Z_node2,
+#          Xvec = Xvec,
+#          Z1vec = Zvec_node1,
+#          Z2vec = Zvec_node2,
+#          iter_count = stp,
+#          like_vec = unlist(lik_list),
+#          loglik = lik_list[[length(lik_list)]])
+#   )
+# }
+# 
+
+# logL_multi <- function(X,nTrees = NULL,condMeans,condVars){
+#   if (is.null(nTrees)) nTrees <- length(condMeans)
+#   lnLs <- sapply(seq_len(nTrees),
+#                  function(i, LOC, mean, var){
+#                    mvtnorm::dmvnorm(x=LOC,
+#                                     mean=mean[[i]],
+#                                     sigma=as.matrix(Matrix::forceSymmetric(var[[i]])),
+#                                     log=TRUE)
+#                  }, LOC = X, mean = cond_mean_list, var = cond_var_list)
+#   return(lnLs)
+# }
+# 
+# logL_single <- function(X,condMean,condVar){
+#   return(
+#     mvtnorm::dmvnorm(x=X,
+#                      mean=condMean,
+#                      sigma=as.matrix(Matrix::forceSymmetric(condVar)),
+#                      log=TRUE)
+#   )
+# }
+
+
