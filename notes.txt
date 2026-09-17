@@ -1,0 +1,73 @@
+=======================================
+=======================================
+=== NOTES, TO-DOS, AND PROGRESS LOG ===
+=======================================
+=======================================
+
+=============
+=== NOTES ===
+=============
+
+- One of the big remaining tasks in my mind is to figure out the uncertainty in location estimates
+(or lack thereof). Why is the uncertainty so little when trees are added? Can we get some sort of
+reliable quantification of uncertainty? 
+
+
+
+==============
+=== TO-DOS ===
+==============
+
+=== SIMULATIONS ===
+- allow simulations (the multicross version) to have a K = 1.
+- enable tracking so the exact ancestry of the admixed individuals
+  can be extracted. Perhaps make this optional?
+
+
+=== METHOD DEVELOPMENT AND IMPLEMENTATION ===
+- FIGURE OUT HOW TO THINK ABOUT UNCERTAINTY.
+- use tslmm to calculate rate matrix and root coordinates?
+- port implemention over to python/tskit
+
+
+=== METHODS EVALUATION (OUTSIDE OF METHOD DEVEL AND IMPLEMENTATION) ===
+***This section will likely break up into multiple sections as the evaluation
+   goal is divided into multiple things
+- this partly goes in the simulation section, but develop approach to extract
+  exact ancestry for every node from each admixed individual. This will involve
+  tracking the ancestry in the slimulation and writing some python code to extract
+  this from the postburnin tree sequence. The thing that slightly complicates this
+  task is simplification.
+- rewrite function to visualize accuracy of inference across space.
+
+=== FIGURES ===
+- CONCEPTUAL FIGURE: figure out how to incorporate some version of brownian motion into
+  spatial evaluation of the genealogies.
+
+
+=== PROJECT LOGISTICS ===
+- clean up old/unused files and scripts in repo (e.g., some of the slim scripts are unnecessary)
+- in repo, update README to make the current status of the scripts navigable. This should
+  include a brief guide to show where the most relevant currently is (e.g., for running
+  a simulation).
+- fix the repo so that people can actually clone it and run things. I think I'm ignoring
+  some directories right now that will cause problems with some of the paths.
+
+
+=== EMPIRICAL APPLICATION ===
+- Do this! ¯\_(ツ)_/¯ (more specifics will be emerge when this starts)
+
+
+=== WRITING ===
+- Write the whole thing ¯\_(ツ)_/¯ (more specifics will I dig into this more)
+
+
+
+
+=======================
+=== COMPLETED TASKS ===
+=======================
+
+DATE: 9/17/2026
+- allow simulation worflow to include different dispersal rates and carrying capacities, and
+  also sample sizes during tree processing
