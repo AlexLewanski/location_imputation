@@ -9,8 +9,8 @@
 =============
 
 - One of the big remaining tasks in my mind is to figure out the uncertainty in location estimates
-(or lack thereof). Why is the uncertainty so little when trees are added? Can we get some sort of
-reliable quantification of uncertainty? 
+(or lack thereof). Why is the uncertainty decline so quickly when more and more trees are added? 
+Can we get some sort of reliable quantification of uncertainty? 
 
 
 
@@ -19,10 +19,12 @@ reliable quantification of uncertainty?
 ==============
 
 === SIMULATIONS ===
-- allow simulations (the multicross version) to have a K = 1.
 - enable tracking so the exact ancestry of the admixed individuals
   can be extracted. Perhaps make this optional?
-
+- implement an approach to infer ARGs from the simulated data rather than
+  just taking the true trees and inferring from those. The final project
+  should include both location inference from the true trees and the
+  inferred trees.
 
 === METHOD DEVELOPMENT AND IMPLEMENTATION ===
 - FIGURE OUT HOW TO THINK ABOUT UNCERTAINTY.
@@ -38,7 +40,11 @@ reliable quantification of uncertainty?
   tracking the ancestry in the slimulation and writing some python code to extract
   this from the postburnin tree sequence. The thing that slightly complicates this
   task is simplification.
-- rewrite function to visualize accuracy of inference across space.
+
+
+=== METHODS EVALUATION: COMPARISON TO EXISTING METHODS ===
+- get locator and SPASIBA up and running on simulated data (and eventually empiricald
+  data?)
 
 === FIGURES ===
 - CONCEPTUAL FIGURE: figure out how to incorporate some version of brownian motion into
@@ -71,3 +77,13 @@ reliable quantification of uncertainty?
 DATE: 9/17/2026
 - allow simulation worflow to include different dispersal rates and carrying capacities, and
   also sample sizes during tree processing
+
+DATE: 9/18/2026
+- allow simulations (the multicross version) to have a K = 1.
+This task was actually already complete. It seems like previous Alex built the sample_founders
+function to handle a K = 1. I did add a few checks within the function for k_val and n_vec to
+make sure they are compatible and valid inputs. The updated version of this function is
+included in both full_sim_multicross_notrack.slim and run_from_burnin_multicross_notrack.slim.
+
+DATE: 9/20/2026
+- rewrite function to visualize accuracy of inference across space.

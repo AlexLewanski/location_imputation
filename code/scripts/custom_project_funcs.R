@@ -36,3 +36,91 @@ pedigree_founder_info <- function(indiv_id, admix_node_df, offspring_df, parent_
   
   return(parent_loc_df[parent_loc_df$pedigree_id %in% moved_indivs,])
 }
+
+
+########################################################
+### VISUALIZATION (AND PROCESSING FOR VISUALIZATION) ###
+########################################################
+
+summarize_by_bins <- function(true_locs, inferred_locs, bin_size_vec) {
+  #recover()
+  
+  ### FUNCTION OVERVIEW: ###
+  #Using the mean and inferred location for each individual, the function creates
+  #a set of bins (based on the user-defined bin size) and then summarizes the
+  #true/estimated location pairs in two ways for each bin. First, it calculates
+  #the mean Euclidean true/estimated distance. Second, it quantifies the bias in
+  #the direction of true --> inferred locations by summing the vectors and dividing
+  #by the total number of vectors.
+  
+  ### THINGS TO POTENTIALLY ADD ###
+  #-check to see if the true_locs and inferred_locs have different individuals
+  
+  
+  ### MINOR INPUT CHECKS ###
+  if (!all(c('x', 'y', 'indiv') %in% colnames(true_locs)))
+    stop('true_locs must have x, y, and indiv columns')
+  
+  if (!all(c('x', 'y', 'indiv') %in% colnames(inferred_locs)))
+    stop('true_locs must have x, y, and indiv columns')
+  
+  if (!all(inferred_locs$indiv %in% true_locs$indiv))
+    stop('Not all the indivs with inferred locations have true locations.')
+  
+  ### INITIAL PROCESSING OF INPUTS ###
+  colnames(true_locs)[colnames(true_locs) == 'x'] <- 'x_true'
+  colnames(true_locs)[colnames(true_locs) == 'y'] <- 'y_true'
+  colnames(inferred_locs)[colnames(inferred_locs) == 'x'] <- 'x_est'
+  colnames(inferred_locs)[colnames(inferred_locs) == 'y'] <- 'y_est'
+  
+  combined_loc_df <- left_join(true_locs, inferred_locs, by = 'indiv')
+  
+  
+  ### SUMMARIZE BY BINS ###
+  bin_summary_list <- list()
+  mean_bin_list <- list()
+  prop_bin_list <- list()
+  
+  for (BIN in bin_size_vec) {
+    #current attempt at creating nice bins for summarizing based on the user-supplied bin sizes
+    x_seq <- seq(floor(min(combined_loc_df$x_true) / BIN) * BIN,ceiling(max(combined_loc_df$x_true) / BIN) * BIN,by = BIN)
+    y_seq <- seq(floor(min(combined_loc_df$y_true) / BIN) * BIN,ceiling(max(combined_loc_df$y_true) / BIN) * BIN,by = BIN)
+    combined_loc_df$x_bin <- cut(combined_loc_df$x_true, x_seq) #cut(combined_loc_df$x_true, breaks = seq(0, 100, BIN))
+    combined_loc_df$y_bin <- cut(combined_loc_df$y_true, y_seq) #cut(combined_loc_df$y_true, breaks = seq(0, 100, BIN))
+    combined_loc_df$dist <- apply(combined_loc_df[,c('x_est', 'y_est', 'x_true', 'y_true')], 1, function(m) sqrt( (m[1] - m[3])^2 + (m[2] - m[4])^2 ))
+    
+    bin_summary_list[[paste0('bin_size', BIN)]] <- combined_loc_df %>% 
+      group_by(x_bin, y_bin) %>% 
+      mutate(x_disp = x_est - x_true,
+             y_disp = y_est - y_true) %>% 
+      summarize(mean_dist = mean(dist),
+                mean_x = sum(x_disp)/n(),
+                mean_y = sum(y_disp)/n(),
+                .groups = 'drop') %>% 
+      mutate(xmin = as.numeric(sub("^[\\[\\(]([-+]?[0-9]*\\.?[0-9]+),.*", "\\1", x_bin)),
+             xmax = as.numeric(sub("^[\\[\\(][^,]+,\\s*([-+]?[0-9]*\\.?[0-9]+).*", "\\1", x_bin)),
+             ymin = as.numeric(sub("^[\\[\\(]([-+]?[0-9]*\\.?[0-9]+),.*", "\\1", y_bin)),
+             ymax = as.numeric(sub("^[\\[\\(][^,]+,\\s*([-+]?[0-9]*\\.?[0-9]+).*", "\\1", y_bin))) %>% 
+      mutate(summed_x_start = (xmax + xmin)/2, #middle of bin in x direction
+             summed_y_start = (ymax + ymin)/2) %>% #middle of bin in y direction
+      mutate(summed_x_end = summed_x_start + mean_x,
+             summed_y_end = summed_y_start + mean_y)
+    
+    bin_count <- (length(x_seq) - 1)*(length(y_seq) - 1)
+    mean_bin_list[[paste0('bin_size', BIN)]] <- nrow(combined_loc_df)/bin_count
+    prop_bin_list[[paste0('bin_size', BIN)]] <- nrow(bin_summary_list[[paste0('bin_size', BIN)]])/bin_count
+  }
+  
+  return(
+    list(bin_summary_list = bin_summary_list,
+         mean_bin_points_vec = unlist(mean_bin_list),
+         prop_bins_vec = unlist(prop_bin_list))
+  )
+  
+  ### EXAMPLE BASE VIZ FROM THIS FUNCTION ###
+  # ggplot(data = test_summarize$bin_summary_list$bin_size15) +
+  #   geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = mean_dist)) +
+  #   geom_segment(aes(x = summed_x_start, y = summed_y_start,xend = summed_x_end, yend = summed_y_end),
+  #                arrow = arrow())
+  
+}
