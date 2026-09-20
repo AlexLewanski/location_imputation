@@ -152,8 +152,8 @@ em_singleloc_softassign <- em_softassign(cond_mean = cond_mean_list,
 )
 
 #same estimates as the other approaches
-em_singleloc_hardassign$X
-em_singleloc_softassign$X
+em_singleloc_hardassign$final_x
+em_singleloc_softassign$final_x
 
 
 
@@ -162,7 +162,8 @@ em_singleloc_softassign$X
 #######################################################################
 
 tree_count <- 50
-indiv_count <- 75
+#indiv_count <- 75
+indiv_count <- length(unique(indiv_node_info$indiv))
 
 tree_list_subset2 <- tree_list[1:tree_count]
 
@@ -209,23 +210,62 @@ for (i in seq_len(length(prep_list))) {
 
 loc_est_df$indiv <- as.numeric(gsub(pattern = 'indiv', "", names(prep_list)))
 
-loc_est_df_new <- merge(loc_est_df, indiv_node_info[!duplicated(indiv_node_info$indiv),c('indiv', 'x', 'y')],
-                        by = c('indiv'))
 
-loc_est_df_new %>%
+summarize_bins_output <- summarize_by_bins(true_locs = indiv_node_info[!duplicated(indiv_node_info$indiv),c('indiv', 'x', 'y')], 
+                                           inferred_locs = loc_est_df %>% 
+                                             rename(x = x_est, y = y_est), 
+                                           bin_size = c(5, 10, 15, 20, 25))
+
+#minimum tested bin size where all the bins have at least one data point
+bin_df_viz <- summarize_bins_output$bin_summary_list[[which(abs(summarize_bins_output$prop_bins_vec - 1.0) < 1e-15)[1]]]
+
+
+bin_df_viz %>% 
   ggplot() +
-  geom_segment(aes(x = x_est, y = y_est, xend = x, yend = y), color = 'gray') +
-  geom_point(data = tidyr::pivot_longer(loc_est_df_new,
-                                        cols = c(x, x_est, y, y_est),
-                                        names_to = c(".value", "type"),
-                                        names_pattern = "(x|y)(_est)?") %>%
-               mutate(type = if_else(type == '_est', 'estimate', 'true')),
-  aes(x, y, color = type), size = 2.5) +
+  geom_rect(aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = mean_dist)) +
   geom_point(data = indiv_node_info[!duplicated(indiv_node_info$indiv),c('indiv', 'x', 'y')],
-             aes(x = x, y =y), size = 0.5, color = 'black') +
-  theme_bw()
+             aes(x = x, y =y), size = 1.1, color = 'white', alpha = 0.8, shape = 19) +
+  # geom_segment(data = summarize_bins_output$inferred_true_join_df,
+  #              aes(x = x_true, y = y_true, xend = x_est, yend = y_est), color = 'black',
+  #              arrow = arrow(length = unit(0.3, "cm"))) +
+  # geom_point(data = tidyr::pivot_longer(summarize_bins_output$inferred_true_join_df,
+  #                                       cols = c(x_true, x_est, y_true, y_est),
+  #                                       names_to = c(".value", "type"),
+  #                                       names_pattern = "(x|y)(_est|_true)?") %>%
+  #              mutate(type = if_else(type == '_est', 'estimate', 'true')),
+  #           aes(x, y, color = type), size = 2.5) +
+  scale_fill_gradient(name = 'Mean\nerror',
+                      low = 'white', high = '#995bb7', limits = c(0, NA),
+                      na.value = "gray") +
+  geom_segment(aes(x = summed_x_start, y = summed_y_start, 
+                   xend = summed_x_end, yend = summed_y_end, colour = "segment"),
+               arrow = arrow(length = unit(0.25, "cm"),
+                             type = "closed"),
+               lineend = 'round',
+               linewidth = 1.1,
+               color = 'black') +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        #panel.grid.major = element_line(color = '#e5e5e5', linetype = 'dashed'),
+        panel.grid.major = element_blank(),
+        panel.border = element_rect(colour = '#e5e5e5', fill = NA, linewidth = 0.75),
+        plot.title = element_text(hjust = 0.5, size = 15))
 
-                    
+
+# summarize_bins_output$inferred_true_join_df %>%
+#   ggplot() +
+#   geom_segment(aes(x = x_true, y = y_true, xend = x_est, yend = y_est), color = 'gray') +
+#   geom_point(data = tidyr::pivot_longer(summarize_bins_output$inferred_true_join_df,
+#                                         cols = c(x_true, x_est, y_true, y_est),
+#                                         names_to = c(".value", "type"),
+#                                         names_pattern = "(x|y)(_est)?") %>%
+#                mutate(type = if_else(type == '_est', 'estimate', 'true')),
+#   aes(x, y, color = type), size = 2.5) +
+#   geom_point(data = indiv_node_info[!duplicated(indiv_node_info$indiv),c('indiv', 'x', 'y')],
+#              aes(x = x, y =y), size = 0.5, color = 'black') +
+#   theme_bw()
+
+
 
 #######################
 ### CODE NOT IN USE ###
