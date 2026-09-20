@@ -112,9 +112,10 @@ summarize_by_bins <- function(true_locs, inferred_locs, bin_size_vec) {
   }
   
   return(
-    list(bin_summary_list = bin_summary_list,
-         mean_bin_points_vec = unlist(mean_bin_list),
-         prop_bins_vec = unlist(prop_bin_list))
+    list(inferred_true_join_df = combined_loc_df, #merged df with inferred and true locations
+         bin_summary_list = bin_summary_list, #list of dataframes with bin summaries
+         mean_bin_points_vec = unlist(mean_bin_list), #mean number of true locations in each bin
+         prop_bins_vec = unlist(prop_bin_list)) #prop of bins with a location in it
   )
   
   ### EXAMPLE BASE VIZ FROM THIS FUNCTION ###
