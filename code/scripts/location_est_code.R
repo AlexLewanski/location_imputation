@@ -317,59 +317,6 @@ condition_mvn <- function(mu, V, A) {
 }
 
 
-#can probably delete. Not currently in use. 
-cond_log_lik_fixed_mean <- function(cond_list,
-                                    prep_list,
-                                    params,
-                                    miss_n,
-                                    weights = 1,
-                                    means_list = NULL) {
-  
-  log_lik_vec <- vector(mode = 'numeric', length = length(cond_list))
-  
-  for (i in seq_along(log_lik_vec)) {
-    log_lik_vec[i] <- mvtnorm::dmvnorm(rep(params, times = miss_n),
-                                       means_list[[i]],
-                                       sigma = as.matrix(Matrix::forceSymmetric(cond_list[[i]]$cond_var)),
-                                       log = TRUE)
-  }
-  return(sum(log_lik_vec*weights))
-}
-
-
-
-#can probably delete. Not currently in use.  
-cond_log_lik_wrapper <- function(cond_list, 
-                                 prep_list, 
-                                 params, 
-                                 miss_n, 
-                                 means = NULL,
-                                 weights = 1,
-                                 type = c('fixed_mean', 'mean_estimate')) {
-  
-  return(
-    switch(type,
-           fixed_mean = {
-             cond_log_lik_fixed_mean(cond_list = cond_list,
-                                     prep_list = prep_list,
-                                     params = params,
-                                     miss_n = miss_n,
-                                     weights = weights,
-                                     means_list = means)
-           },
-           mean_estimate = {
-             cond_log_lik_mean_est(
-               cond_list = cond_list,
-               prep_list = prep_list,
-               params = params,
-               weights = weights,
-               miss_n = miss_n
-             )
-           })
-  )
-}
-
-
 
 ##############################################
 ### FUNCTIONS FOR EXPECTATION-MAXIMIZATION ###
@@ -380,9 +327,12 @@ em_hardassign_wrapper <- function(times = 1,
                                   cond_var = cond_var_list, 
                                   k, 
                                   max_stp = 20, 
-                                  conv_thresh = 1e-5, 
+                                  conv_thresh = 1e-5,
+                                  lik_equality_tol = 1e-6,
                                   sp_bounds,
+                                  retain_all_outputs = TRUE,
                                   starting_location_seed = NULL) {
+  #recover()
   #need to fix seed
   est_list <- list()
   
@@ -395,38 +345,48 @@ em_hardassign_wrapper <- function(times = 1,
                                      sp_bounds = sp_bounds,
                                      starting_location_seed = starting_location_seed
     )
+    
     message('finished ', est)
+    
   }
   
-  #extract the likelihood vectors from each EM run
-  like_list <- lapply(est_list, function(x) x$like_vec)
   
-  #find EM run with biggest likelihood
-  top_like_run <- which.max(sapply(like_list, function(x) max(x, na.rm = TRUE)))
+  process_output_list <- process_em_output(output_list = est_list, 
+                                           lik_tol = lik_equality_tol)
   
-  #in the biggest likelihood EM run, find the max likelihood index
-  max_iter <- which.max(like_list[[top_like_run]])
+  if (isTRUE(retain_all_outputs)) process_output_list[['output_list']] <- est_list
   
-  return(
-    list(
-      top_run_index = top_like_run, #index of top EM run
-      top_iter_index = max_iter, #index of iter with highest likelihood in top EM run
-      top_lik = like_list[[top_like_run]][[max_iter]], #top likelihood
-      top_x = est_list[[top_like_run]]$xvec_list[[max_iter]], #top coordinates estimate
-      output_list = est_list #output from all the EM runs
-    )
-  )
+  return(process_output_list)
+  # #extract the likelihood vectors from each EM run
+  # like_list <- lapply(est_list, function(x) x$like_vec)
+  # 
+  # #find EM run with biggest likelihood
+  # top_like_run <- which.max(sapply(like_list, function(x) max(x, na.rm = TRUE)))
+  # 
+  # #in the biggest likelihood EM run, find the max likelihood index
+  # max_iter <- which.max(like_list[[top_like_run]])
+  # 
+  # return(
+  #   list(
+  #     top_run_index = top_like_run, #index of top EM run
+  #     top_iter_index = max_iter, #index of iter with highest likelihood in top EM run
+  #     top_lik = like_list[[top_like_run]][[max_iter]], #top likelihood
+  #     top_x = est_list[[top_like_run]]$xvec_list[[max_iter]], #top coordinates estimate
+  #     output_list = est_list #output from all the EM runs
+  #   )
+  # )
   
 }
-
 
 em_softassign_wrapper <- function(times = 1,
                                   cond_mean = cond_mean_list, 
                                   cond_var = cond_var_list, 
                                   k, 
                                   max_stp = 20, 
-                                  conv_thresh = 1e-5, 
+                                  conv_thresh = 1e-5,
+                                  lik_equality_tol = 1e-6,
                                   sp_bounds,
+                                  retain_all_outputs = TRUE,
                                   starting_location_seed = NULL) {
   
   #recover()
@@ -446,29 +406,24 @@ em_softassign_wrapper <- function(times = 1,
     message('finished ', est)
   }
   
-  #extract the likelihood vectors from each EM run
-  like_list <- lapply(est_list, function(x) x$like_vec)
+  process_output_list <- process_em_output(output_list = est_list, 
+                                           lik_tol = lik_equality_tol)
   
-  #find EM run with biggest likelihood
-  top_like_run <- which.max(sapply(like_list, function(x) max(x, na.rm = TRUE)))
+  if (isTRUE(retain_all_outputs)) process_output_list[['output_list']] <- est_list
   
-  #in the biggest likelihood EM run, find the max likelihood index
-  max_iter <- which.max(like_list[[top_like_run]])
-  
-  return(
-    list(
-      top_run_index = top_like_run, #index of top EM run
-      top_iter_index = max_iter, #index of iter with highest likelihood in top EM run
-      top_lik = like_list[[top_like_run]][[max_iter]], #top likelihood
-      top_x = est_list[[top_like_run]]$xvec_list[[max_iter]], #top coordinates estimate
-      output_list = est_list #output from all the EM runs
-    )
-  )
+  return(process_output_list)
   
 }
 
 
-em_hardassign <- function(cond_mean, cond_var, k, max_stp, conv_thresh, sp_bounds, starting_location_seed = NULL) {
+em_hardassign <- function(cond_mean, 
+                          cond_var, 
+                          k, 
+                          max_stp, 
+                          conv_thresh,
+                          sp_bounds, 
+                          stopping_criterion,
+                          starting_location_seed = NULL) {
   
   #recover()
   
@@ -610,7 +565,7 @@ em_hardassign <- function(cond_mean, cond_var, k, max_stp, conv_thresh, sp_bound
       next
     }
     
-    #if the current lik is less than the previous lik, throw an error
+    #if the current lik is less than the previous lik, write a warning
     if (loglik_list[[stp]] < loglik_list[[stp - 1]] ) {
       warning('The likelihood decreased!')
       
@@ -627,7 +582,7 @@ em_hardassign <- function(cond_mean, cond_var, k, max_stp, conv_thresh, sp_bound
     
     #if the difference in log liks is below the stopping threshold, break out of loop
     loglik_dif <- loglik_list[[stp]] - loglik_list[[stp - 1]]
-    if ( loglik_dif <= conv_thresh & loglik_dif > 0 ) {
+    if (abs(loglik_dif) <= conv_thresh) {
       convergence <- TRUE
       break
     }
@@ -782,6 +737,7 @@ em_softassign <- function(cond_mean,
     
     #if the difference in log liks is below the stopping threshold, break out of loop
     if ( (loglik_list[[stp]] - loglik_list[[stp - 1]]) <= conv_thresh) {
+     
       convergence <- TRUE
       break
     }
@@ -885,7 +841,6 @@ logL_groupmat_multitree <- function(Xvec,
 
 
 
-
 logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FALSE) {
   #recover()
   if (!is.matrix(Xmat) || ncol(Xmat) != 2 || nrow(Xmat) != group_count) {
@@ -932,6 +887,156 @@ logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FA
   
   return(like_mat)
 }
+
+
+
+
+############################
+### PROCESSING FUNCTIONS ###
+############################
+
+#greedy matching approach where locations are matched sequentially based on ranked proximity
+#(the closest locations are matched, second closest are matched, etc)
+ranked_match_up <- function(ref_location, compare_location) {
+  #recover()
+  
+  colnames(ref_location) <- c('x', 'y')
+  colnames(compare_location) <- c('x', 'y')
+  
+  dist_mat <- matrix(data = NA, 
+                     nrow = nrow(ref_location), 
+                     ncol = nrow(compare_location))
+  
+  for (REAL in 1:nrow(ref_location)) {
+    for (EST in 1:nrow(compare_location)) {
+      dist_mat[REAL,EST] <- dist(rbind(ref_location[REAL,], compare_location[EST,]))
+    }
+  }
+  
+  matchup_df <- data.frame(ref_group = rep(NA, ncol(dist_mat)),
+                           compare_group = rep(NA, ncol(dist_mat))
+  )
+  
+  total_length <- nrow(dist_mat)
+  row_ind <- seq_len(total_length)
+  col_ind <- seq_len(total_length)
+  
+  for (i in seq_len(total_length)) {
+    #find the smallest distance
+    min_coord <- which(dist_mat == min(dist_mat), arr.ind = TRUE)[1,,drop=FALSE] #just take the first row, necessary for ties
+    
+    ref_ind <- row_ind[min_coord[1]]
+    compare_ind <- col_ind[min_coord[2]]
+    
+    matchup_df[i,] <- c(ref_ind, compare_ind)
+    
+    
+    if (i == total_length) break
+    
+    #remove groups reference and comparison groups that are already matched
+    dist_mat <- dist_mat[-min_coord[1],-min_coord[2],drop=FALSE]
+    row_ind <- row_ind[-min_coord[1]]
+    col_ind <- col_ind[-min_coord[2]]
+  }
+  
+  ref_df <- as.data.frame(ref_location)
+  ref_df[,'ref_group'] <- seq_len(nrow(ref_df))
+  
+  ref_df_reorder <- ref_df[matchup_df$ref_group,]
+  
+  compare_df <- as.data.frame(compare_location)
+  compare_df_reorder <- compare_df[matchup_df$compare_group,]
+  compare_df_reorder[,'ref_group'] <- ref_df_reorder$ref_group
+  
+  #reset rownames
+  ref_final <- ref_df_reorder[order(ref_df_reorder$ref_group),]
+  compare_final <- compare_df_reorder[order(compare_df_reorder$ref_group),]
+  rownames(ref_final) <- NULL
+  rownames(compare_final) <- NULL
+  
+  return(list(matchup_df,
+              ref_group_reorder = ref_final,
+              compare_group_reorder = compare_final
+              ))
+}
+
+
+ranked_match_up_multi <- function(x_list) {
+  
+  if (length(x_list) == 1) {
+    x_list[[1]] <- as.data.frame(x_list[[1]])
+    colnames(x_list[[1]]) <- c('x', 'y')
+    x_list[[1]]$ref_group <- 1:nrow(x_list[[1]])
+    return(x_list)
+  }
+  
+  x_reorder_list <- list()
+  reorder_output <- ranked_match_up(x_list[[1]], x_list[[2]])
+  x_reorder_list[[1]] <- reorder_output$ref_group_reorder
+  x_reorder_list[[2]] <- reorder_output$compare_group_reorder
+  
+  if (length(x_list) > 2) {
+    for (i in 3:length(x_list)) {
+      x_reorder_list[[i]] <- ranked_match_up(x_list[[1]], x_list[[i]])$compare_group_reorder
+    }
+  }
+  return(x_reorder_list)
+}
+
+
+duplicated_matrix <- function(matrix_list, tol = 1e-8) {
+  #matrix version of duplicated function to identify duplicated matrices
+  equality_vec <- rep(FALSE, length(matrix_list))
+  for (i in seq_along(matrix_list)) {
+    if (i > 1) {
+      for (x in seq_len(i - 1)) {
+        #setting check.attributes to FALSE because this return not equal if attributes (like row names) are different,
+        #which we don't care about
+        CHECK <- isTRUE(all.equal(matrix_list[[x]], matrix_list[[i]], tolerance = tol, check.attributes = FALSE))
+        if (CHECK) {
+          equality_vec[i] <- TRUE
+          break
+        }
+      }
+    }
+  }
+  
+  return(equality_vec)
+}
+
+
+process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-12) {
+  #recover()
+  like_list <- lapply(output_list, function(x) x$like_vec) #likelihood vecs from each run
+  top_like_vec <- sapply(like_list, function(x) max(x, na.rm = TRUE)) #top likelihood from each run
+  max_indices <- which(abs(top_like_vec - max(top_like_vec)) <= lik_tol) #indices of top likelihoods across runs
+  top_runs <- output_list[max_indices] #subset output to top runs
+  
+  #extract the top likelihood index from each run
+  x_list <- list()
+  for (i in 1:length(top_runs)) {
+    top_ind <- which.max(top_runs[[i]]$like_vec)[1] #if there are multiple equal, top indices, choose the first one
+    x_list[[i]] <- matrix(top_runs[[i]]$xvec_list[[top_ind]], ncol = 2, byrow = 2)
+  }
+  
+  #greedy match up approach of groups based on the matrix
+  xlist_ranked_matchup <- ranked_match_up_multi(x_list = x_list)
+  
+  #remove duplicates
+  duplicated_indices <- duplicated_matrix(matrix_list = xlist_ranked_matchup, tol = duplicated_tol)
+  xlist_remove_duplicates <- xlist_ranked_matchup[!duplicated_indices]
+  
+  return(
+    list(
+      max_lik_xmat_list = xlist_remove_duplicates,
+      max_lik = max(top_like_vec),
+      maxlik_indices = max_indices,
+      nonduplicated_indices = max_indices[!duplicated_indices] #the matrices 
+    )
+  )
+  
+}
+
 
 
 
@@ -1013,10 +1118,10 @@ logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FA
 
 
 
-#' process_single_tree_old <- function(tree,
-#'                                     trait_mat,
-#'                                     rate_mat,
-#'                                     missing_inds,
+# process_single_tree_old <- function(tree,
+#                                     trait_mat,
+#                                     rate_mat,
+#                                     missing_inds,
 #'                                     #prior_variance,
 #'                                     retain = c('tree_covar', 
 #'                                                'data_prep_output', 
@@ -2037,4 +2142,54 @@ logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FA
 #   )
 # }
 
+# #can probably delete. Not currently in use. 
+# cond_log_lik_fixed_mean <- function(cond_list,
+#                                     prep_list,
+#                                     params,
+#                                     miss_n,
+#                                     weights = 1,
+#                                     means_list = NULL) {
+#   
+#   log_lik_vec <- vector(mode = 'numeric', length = length(cond_list))
+#   
+#   for (i in seq_along(log_lik_vec)) {
+#     log_lik_vec[i] <- mvtnorm::dmvnorm(rep(params, times = miss_n),
+#                                        means_list[[i]],
+#                                        sigma = as.matrix(Matrix::forceSymmetric(cond_list[[i]]$cond_var)),
+#                                        log = TRUE)
+#   }
+#   return(sum(log_lik_vec*weights))
+# }
 
+
+
+# #can probably delete. Not currently in use.  
+# cond_log_lik_wrapper <- function(cond_list, 
+#                                  prep_list, 
+#                                  params, 
+#                                  miss_n, 
+#                                  means = NULL,
+#                                  weights = 1,
+#                                  type = c('fixed_mean', 'mean_estimate')) {
+#   
+#   return(
+#     switch(type,
+#            fixed_mean = {
+#              cond_log_lik_fixed_mean(cond_list = cond_list,
+#                                      prep_list = prep_list,
+#                                      params = params,
+#                                      miss_n = miss_n,
+#                                      weights = weights,
+#                                      means_list = means)
+#            },
+#            mean_estimate = {
+#              cond_log_lik_mean_est(
+#                cond_list = cond_list,
+#                prep_list = prep_list,
+#                params = params,
+#                weights = weights,
+#                miss_n = miss_n
+#              )
+#            })
+#   )
+# }
