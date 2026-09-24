@@ -28,19 +28,19 @@ initialize() {
 		"FECUN", 5,
 		"WIDTH", 100.0,     // landscape width
 		"HEIGHT", 100.0,    // landscape height
-		"BURNIN", 12000,    // total simulation ticks
+		"BURNIN", 500,    // total simulation ticks
 		"L", 1.25e8,          // genome length
 		"RBP", 1.25e-8,       // recombination rate
 		"MU", 0.0,            // mutation rate
 		"LOCATION_COUNT", 2,
 		"CROSS_COUNT", 5,
 		"FOUNDER_COUNT_VEC", "3 1", //needs to equal four
-		"WITHIN_LOCATION_SAMPLE_EXTENT", 5,
+		"WITHIN_LOCATION_SAMPLE_EXTENT", 0.75,
 		"BETWEEN_LOCATION_MIN_DIST", 15,
 		"OUTDIR", exists("OUTDIR") ? OUTDIR else ".",
       "OUTPATH", exists("OUTPATH") ? OUTPATH else "simulation",
       "ParamFile", exists("ParamFile") ? ParamFile else "params.json",
-		"SUFFIX", "SIMK2_ADMIXTEST"
+		"SUFFIX", "SIMK2_ADMIXTEST_REMEMBER"
 	);
 	
 	if (fileExists(defaults.getValue("ParamFile"))){
@@ -244,6 +244,7 @@ initialize() {
 	
 	  //p2.takeMigrants(founder_indivs);
 	  sim.subpopulations[SUBPOP - 1].takeMigrants(founder_info.getValue("founders"));
+	  sim.treeSeqRememberIndividuals(founder_info.getValue("founders"), permanent=F);
 	
 	  cat(paste('Captive pop size:', sim.subpopulations[SUBPOP - 1].individualCount));
 	
@@ -338,6 +339,8 @@ initialize() {
 		sim.simulationFinished();
 	}   
    //sim.treeSeqRememberIndividuals(sim.subpopulations.individuals, permanent=F);
+   sim.treeSeqRememberIndividuals(sim.subpopulations[sim.subpopulations.id != 1].individuals, permanent=F);
+   
 }
 
 
@@ -408,30 +411,46 @@ if (length(ind_pool) < n) {
 
 
 
-function(lifso) sample_founders(lifso inds, 
-                                  numeric k_val, 
-                                  integer n_vec,
-                                  integer apo, 
-                                  numeric x_lim, 
-                                  numeric y_lim, 
-                                  numeric dist_threshold)
+function(lifso) sample_founders(lifso inds, //the individuals to sample from 
+                                  numeric k_val, //the number of sample locations
+                                  integer n_vec, //the number of individuals from each location
+                                  numeric apo, //apothem of search square
+                                  numeric x_lim, //upper and lower limits of proposal locations in the x dim 
+                                  numeric y_lim, //upper and lower limits of proposal locations in the y dim  
+                                  numeric dist_threshold //the minimum threshold for distance between locations 
+                                  )
 {
+ //A FEW INPUT CHECKS
+ if (k_val < 1) {
+      stop(message = 'k_val must be at least 1.');
+ }
  
+ if (length(n_vec) != k_val) {
+      stop(message = 'n_vec must be the same length as k_val.');
+ }
+ 
+ if (any(n_vec < 1)) {
+      stop(message = 'all elements of n_vec must be >0.');
+ }
+ 
+ //LOCATION AND INDIVIDUAL SELECTION
  loc_mat = matrix(rep(0.0, k_val*2), ncol=2);
  founder_vec = c();
+ 
  for (k in 0:(k_val - 1) ) {
+  
   if (k == 0) {
   	 indiv_sample = c();
   	 check0 = 0;
-  	 while (n_vec[k] != length(indiv_sample) & check0 <= 1000)
+  	 while (n_vec[k] != length(indiv_sample) & check0 <= 3000)
   	 {
-  	  prop_loc = c(runif(1, x_lim[0], x_lim[1]), runif(1, y_lim[0], y_lim[1]) );
+  	  prop_loc = c(runif(1, x_lim[0], x_lim[1]), runif(1, y_lim[0], y_lim[1]) ); //proposed location
   	  indiv_sample = sample_indivs(inds, n_vec[k], apo, prop_loc[0], prop_loc[1]);
   	  check0 = check0 + 1; 
   	 }
   	 
   	 if (n_vec[k] != length(indiv_sample)) {
-      stop(message = 'Unable to sample indivs in 1000 attempts.');
+      stop(message = 'Unable to sample indivs in 3000 attempts.');
     }
   	 
   	 founder_vec = c(founder_vec, indiv_sample);
@@ -441,12 +460,13 @@ function(lifso) sample_founders(lifso inds,
   
   check = 0;
   loc_check = T;
-  while (check <= 2000 & loc_check) {
+  while (check <= 3000 & loc_check) {
+   //
    prop_loc = c(runif(1, x_lim[0], x_lim[1]), runif(1, y_lim[0], y_lim[1]) );
    dist_check = dist_threshold_check(prop_loc, loc_mat[0:(k - 1),], dist_threshold); 
    
    if (!dist_check) {
-     indiv_sample = sample_indivs(inds, n_vec[k], apo, prop_loc[0], prop_loc[1]);
+     indiv_sample = sample_indivs(inds, n_vec[k], apo, prop_loc[0], prop_loc[1]);  //proposed location
      if (n_vec[k] == length(indiv_sample)) {
 	    loc_check = F;
      } 
@@ -460,7 +480,7 @@ function(lifso) sample_founders(lifso inds,
   }
  
   if (n_vec[k] != length(indiv_sample)) {
-   stop(message = 'Unable to find new source location after 2000 attempts.');
+   stop(message = 'Unable to find new source location after 3000 attempts.');
   }
   
  founder_vec = c(founder_vec, indiv_sample);
