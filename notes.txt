@@ -69,10 +69,33 @@ Can we get some sort of reliable quantification of uncertainty?
 
 
 
+=====================  
+=== MEETING NOTES ===
+=====================
 
-=======================
-=== COMPLETED TASKS ===
-=======================
+DATE: 9/22/2026 MEETING WITH GIDEON
+To do:
+
+1. implement label-swap handling
+2. lil study where you compare best of 10x hard assignment to best of 2x soft assignment
+3. simulation study? what are parameters?
+  a. sigma (5 vals max)
+  b. sample size (3 values max)
+  c. number of trees (3 values max)
+  d. K (1:4)
+4. comparison to locator (wait until you’re done w/ sim study)
+5. make it fast (look into tsglmm?)
+6. hard assignment vs. soft assignment?
+7. explore uncertainty
+8. figure out model selection?
+9. empirical ARG
+10. small scale (permitted) exploration of the contribution of ARG inference to location inference error
+
+
+
+===================
+=== PROJECT LOG ===
+===================
 
 DATE: 9/17/2026
 - allow simulation worflow to include different dispersal rates and carrying capacities, and
@@ -87,3 +110,13 @@ included in both full_sim_multicross_notrack.slim and run_from_burnin_multicross
 
 DATE: 9/20/2026
 - rewrite function to visualize accuracy of inference across space.
+
+DATE: 9/23/2026 -- 9/24/2026
+- deal with label switching/assignment issues across EM runs and comparing estimates to true
+  locations. I am dealing with this so far by using a simple, greedy matching approach where
+  I pair the closest locations, and then second, third, etc. With this I also implemented some
+  functionality with the EM wrapper functions to first deal with the label switching across
+  runs and then exctracting the coordinate estimates that are different but result in identical
+  likelihoods. For this, I use the following steps: (1) identify and extract any runs with the max
+  likelihoods, (2) implement greedy matching approach using the first max lik run as the reference,
+  (3) compare the estimates across max lik runs to identify and extract different estimates.
