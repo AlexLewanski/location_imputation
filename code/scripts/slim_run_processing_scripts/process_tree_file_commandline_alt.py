@@ -34,7 +34,7 @@ parser.add_argument("--seed", "-d", type=float, help="random seed")
 
 args = parser.parse_args()
 
-
+'''
 def ancestor_at_time_multitree_nodes(ts, nodes, time):
     tree_index_list = []
     node_list = []
@@ -53,6 +53,7 @@ def ancestor_at_time_multitree_nodes(ts, nodes, time):
     })
     
 
+#COMMENT OUT?
 def ancestor_at_time_multitree(ts, node, time):
     node_list = []
     for TREE in ts.trees():
@@ -62,6 +63,7 @@ def ancestor_at_time_multitree(ts, node, time):
     return({"tree_index": [i for i in range(0, ts.num_trees, 1)],
             "node":node_list})
 
+#COMMENT OUT?
 def ancestor_at_time(tree, node, time):
     node_collector = [node]
     node_age = [tree.time(node)]
@@ -82,6 +84,7 @@ def ancestor_at_time(tree, node, time):
     else:
         return(-9999)
 
+#COMMENT OUT
 def combine_elements_index(val):
     new_val = []
     ind_list = []
@@ -101,6 +104,7 @@ def combine_elements_index(val):
         {"val":new_val,
          "ind_list":ind_list}
     )
+'''
 
 def extract_samples_multipop(ts, exclude_pops):
     sample_node_list=[]
@@ -112,6 +116,56 @@ def extract_samples_multipop(ts, exclude_pops):
 
     return({"sample_node_list": sample_node_list,
             "pop_list": sample_node_pop})
+
+def extract_ped_founder_anc(ts, focal_node):
+    ancestor_id_list = []
+    for TREE in ts.trees():
+        node = focal_node
+        subpop = ts.node(node)
+        while subpop != 1:
+            node_init = TREE.parent(node)
+            subpop = ts.node(node_init).population
+
+            #the nodes of the founder individuals moved to the new subpop will still have a subpop of 1, so we 
+            #are basically looking for the first node to have a subpop of one going back in time. This is slightly
+            #different then if we looked up the subpop from the individual associated with the node, whose subpop
+            #would apparently be the new subpop (I'm not 100% sure why). If we were looking up the subpop from the
+            #individual rather than node, we would have to do this slightly differently.
+            node = node_init
+        ancestor_slim_id = ts.individual(ts.node(node).individual).metadata['pedigree_id']
+        ancestor_id_list.append(ancestor_slim_id)
+    return(ancestor_id_list)
+
+
+
+
+def ancestry_intervals(ts, anc_list, focal_node = None):
+    id_counter = 0
+    pedig_id_list = []
+    left_interv_list = []
+    right_interv_list = []
+
+    total_ind = len(anc_list) - 1
+    for index,pedig_id in enumerate(anc_list):
+        if id_counter == 0:
+            pedig_id_list.append(pedig_id)
+            left_interv_list.append(ts.at_index(index).interval.left)
+
+        #the last tree
+        if index == total_ind:
+            right_interv_list.append(ts.at_index(index).interval.right)
+            break
+
+        if pedig_id != anc_list[index + 1]:
+            right_interv_list.append(ts.at_index(index).interval.right)
+            id_counter = 0
+        else:
+            id_counter += 1
+
+    return({"focal_node": focal_node,
+            "ancestor_list": pedig_id_list,
+            "left_interv_list": left_interv_list,
+            "right_interv_list": right_interv_list})
 
 
 
@@ -165,8 +219,17 @@ sample_indiv_array = np.unique(spatial_ts1.nodes_individual[np.where(spatial_ts1
 #2A
 #admix_nodes = spatial_ts1.samples(population=2) #nodes in admixed population
 admix_nodes_dict = extract_samples_multipop(ts = spatial_ts1, exclude_pops = [1])
-admix_nodes=admix_nodes_dict["sample_node_list"]
-admix_indivs = list(set([spatial_ts1.node(i).individual for i in admix_nodes])) #individuals in the admixed pop
+admix_nodes_original=admix_nodes_dict["sample_node_list"]
+admix_indivs = list(set([spatial_ts1.node(i).individual for i in admix_nodes_original])) #individuals in the admixed pop
+
+
+
+anc_node_info_list = []
+for ADMIX_NODE in admix_nodes_original:
+    anc_list = extract_ped_founder_anc(ts = spatial_ts1, focal_node = ADMIX_NODE)
+    anc_node_info_list.append(ancestry_intervals(ts = spatial_ts1, anc_list = anc_list, focal_node = ADMIX_NODE))
+
+
 
 
 #individuals in original population
@@ -178,9 +241,9 @@ subsample_sample = np.random.choice(non_admixed_indiv_array, size=args.sample_si
 subsamp_node_list = [spatial_ts1.individual(x).nodes for x in subsample_sample]
 
 
-#2C: simplify
-spatial_ts1_reduced = spatial_ts1.simplify(np.concatenate([np.concatenate(subsamp_node_list), admix_nodes]),
-                                           keep_unary = True)
+#2C: simplify (and request node map)
+spatial_ts1_reduced,node_map = spatial_ts1.simplify(np.concatenate([np.concatenate(subsamp_node_list), admix_nodes_original]),
+                                           map_nodes = True)
 
 
 '''
@@ -229,7 +292,7 @@ for NODE in ancestor_node_info['ancestor_node']:
 #doing this seems much complicated, convoluted, and slow ...
 
 #DELETE
-spatial_ts2_reduced = spatial_ts1_reduced.simplify(map_nodes = True)
+#spatial_ts2_reduced = spatial_ts1_reduced.simplify(map_nodes = True)
 
 
 '''
@@ -357,7 +420,7 @@ with open(output_file_path + 'ancester_info_simplified_tree.txt', 'w') as file:
 
 '''
 #admix_nodes = spatial_ts2_reduced[0].samples(population = 0)
-admix_nodes = extract_samples_multipop(spatial_ts2_reduced[0], exclude_pops = [0])["sample_node_list"]
+admix_nodes = extract_samples_multipop(spatial_ts1_reduced, exclude_pops = [0])["sample_node_list"]
 
 column_names = ['node', 'indiv', 'ped_id', 'p1_ped_id', 'p2_ped_id']
 
@@ -365,7 +428,7 @@ with open(args.output_file_path + args.output_prefix + '_admix_node_info.txt', '
     # Write the rows, aligning each list as a column
     file.write("\t".join(column_names) + "\n")
     for NODE in admix_nodes:
-        focal_indiv = spatial_ts2_reduced[0].individual(spatial_ts2_reduced[0].node(NODE).individual)
+        focal_indiv = spatial_ts1_reduced.individual(spatial_ts1_reduced.node(NODE).individual)
         row = f"{NODE}\t{focal_indiv.id}\t{focal_indiv.metadata['pedigree_id']}\t{focal_indiv.metadata['pedigree_p1']}\t{focal_indiv.metadata['pedigree_p2']}\n"
         file.write(row)
 
@@ -400,7 +463,7 @@ with open(args.output_file_path + args.output_prefix + '_tree_position_info.txt'
 '''
 
 ### EXTRACTING INFO ABOUT INDIVIDUALS (COORDINATES AND NODES ASSOCIATED WITH EACH INDIV) ###
-sample_list_rename = np.unique(spatial_ts2_reduced[0].nodes_individual[np.where(spatial_ts2_reduced[0].nodes_flags == 1)])
+sample_list_rename = np.unique(spatial_ts1_reduced.nodes_individual[np.where(spatial_ts1_reduced.nodes_flags == 1)])
 
 indiv_list = []
 node_list = []
@@ -408,11 +471,11 @@ x_list = []
 y_list = []
 
 for INDIV in sample_list_rename:
-    for NODE in spatial_ts2_reduced[0].individual(INDIV).nodes:
+    for NODE in spatial_ts1_reduced.individual(INDIV).nodes:
         indiv_list.append(INDIV)
         node_list.append(NODE)
-        x_list.append(spatial_ts2_reduced[0].individual(INDIV).location[0])
-        y_list.append(spatial_ts2_reduced[0].individual(INDIV).location[1])
+        x_list.append(spatial_ts1_reduced.individual(INDIV).location[0])
+        y_list.append(spatial_ts1_reduced.individual(INDIV).location[1])
 
 column_names = ['indiv', 'node', 'x', 'y']
 
@@ -425,7 +488,39 @@ with open(args.output_file_path + args.output_prefix + '_indiv_node_info.txt', '
 
 
 ### OUTPUTTING TREES AS NEWICKS ###
-for TREE in range(0, spatial_ts2_reduced[0].num_trees, args.tree_sep):
+for TREE in range(0, spatial_ts1_reduced.num_trees, args.tree_sep):
     with open(args.output_tree_path + args.output_prefix + str(TREE) + ".nwk", "w") as f:
-        f.write(spatial_ts2_reduced[0].at_index(TREE).as_newick())
+        f.write(spatial_ts1_reduced.at_index(TREE).as_newick())
         #print('exported' + str(TREE))
+
+
+#OUTPUTTING TREE SPAN AND COORDINATE INFO
+column_names = ['tree_index', 'left_interval', 'right_interval', 'span']
+with open(args.output_file_path + 'tree_interval_info.txt', 'w') as file:
+    file.write("\t".join(column_names) + "\n")
+    for TREE in range(0, spatial_ts1_reduced.num_trees, args.tree_sep):
+        left_interv = spatial_ts1_reduced.at_index(TREE).interval.left
+        right_interv = spatial_ts1_reduced.at_index(TREE).interval.right
+        span = spatial_ts1_reduced.at_index(TREE).span
+        
+        row = f"{TREE}\t{left_interv}\t{right_interv}\t{span}\n"
+        file.write(row)
+
+
+column_names = ['focal_node_simplified', 'focal_node_original', 'ancestor', 'left_interval', 'right_interval']
+
+with open(args.output_file_path + 'node_founder_ancestry_intervals.txt', 'w') as file:
+    file.write("\t".join(column_names) + "\n")
+    for index in range(len(anc_node_info_list)):
+        focal_node = anc_node_info_list[index]['focal_node']
+
+        for index1 in range(len(anc_node_info_list[index]['ancestor_list'])):
+            ancestor = anc_node_info_list[index]['ancestor_list'][index1]
+            left_interv = anc_node_info_list[index]['left_interv_list'][index1]
+            right_interv = anc_node_info_list[index]['right_interv_list'][index1]
+
+            row = f"{node_map[focal_node]}\t{focal_node}\t{ancestor}\t{left_interv}\t{right_interv}\n"
+            file.write(row)
+
+
+

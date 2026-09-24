@@ -38,6 +38,55 @@ pedigree_founder_info <- function(indiv_id, admix_node_df, offspring_df, parent_
 }
 
 
+#assign ancestry for each node in each tree based in genome interval info for a
+#node's ancestry. This is used when to assign ancestry info in simplified trees
+#when the ancestry info is extracted from the unsimplified trees (quick, rough
+#explanation ... will update later)
+assign_ancestor <- function(tree_interval_info, 
+                            ancestry_interval_info, 
+                            ancestor_locations,
+                            ancestor_location_join_col) {
+  
+  #checking to see if dataframes have the required columns
+  if (!all(c("tree_index", "left_interval", "right_interval", "span") %in% colnames(tree_interval_info)))
+    stop('tree_interval_info must have been the following columns: "tree_index", "left_interval", "right_interval", "span"')
+  
+  if (!all(c("focal_node_simplified", "focal_node_original", "ancestor", "left_interval", "right_interval") %in% colnames(ancestry_interval_info)))
+    stop('ancestry_interval_info must have been the following columns: "focal_node_simplified", "focal_node_original", "ancestor", "left_interval", "right_interval"')
+  
+  
+  simplified_node_vec <- unique(ancestry_interval_info$focal_node_simplified)
+  
+  df_list <- list()
+  
+  for (focal_node in simplified_node_vec) {
+    tree_interval_info_copy <- tree_interval_info
+    anc_interv_subset <- ancestry_interval_info[ancestry_interval_info$focal_node_simplified == focal_node,]
+    
+    tree_interval_info_copy[,'focal_node'] <- focal_node
+    tree_interval_info_copy[,'ancestor_id'] <- NA
+    for (i in seq_len(nrow(tree_interval_info_copy))) {
+      left_index <- max(which(anc_interv_subset$left_interval <= tree_interval_info_copy[i,]$left_interval))
+      right_index <- min(which(anc_interv_subset$right_interval >= tree_interval_info_copy[i,]$right_interval))
+      
+      if (left_index == right_index) {
+        tree_interval_info_copy[i,'ancestor_id'] <- anc_interv_subset[left_index,]$ancestor
+      } else {
+        tree_interval_info_copy[i,'ancestor_id'] <- 'multianc'
+      }
+    }
+    
+    df_list[[paste0('node', focal_node)]] <- left_join(tree_interval_info_copy, 
+                                                       ancestor_locations, 
+                                                       by = c('ancestor_id' = ancestor_location_join_col))
+  }
+  
+  return(df_list)
+  
+}
+
+
+
 ########################################################
 ### VISUALIZATION (AND PROCESSING FOR VISUALIZATION) ###
 ########################################################
