@@ -4,6 +4,7 @@
 #########################################################
 #########################################################
 message('REQUIRED PACKAGES: MASS, Matrix, mvtnorm')
+message('For parallel version of soft assign wrapper, you need future.apply')
 
 ################
 ### OVERVIEW ###
@@ -172,6 +173,7 @@ calc_cond_mean <- function(covar_12, inv_covar22,
   )
 }
 
+
 calc_cond_var_elements <- function(kron_varcovar_ratemat,
                                    no_ind,
                                    yes_ind) {
@@ -184,15 +186,17 @@ calc_cond_var_elements <- function(kron_varcovar_ratemat,
   #cond_mean <- mean1 + (covar_12 %*% solve(covar_22) %*% (trait_vec -  mean2))
   #cond_var <- covar_11 - covar_12%*%inv_covar_22%*%covar_21
 
-  return(list(
-    covar_11 = covar_11,
-    covar_12 = covar_12,
-    inv_covar_22 = inv_covar_22,
-    covar_21 = covar_21,
-    cond_var = covar_11 - covar_12%*%inv_covar_22%*%covar_21
-  ))
-
-  } 
+  return(
+    list(
+      covar_11 = covar_11,
+      covar_12 = covar_12,
+      inv_covar_22 = inv_covar_22,
+      covar_21 = covar_21,
+      cond_var = covar_11 - covar_12%*%inv_covar_22%*%covar_21
+      )
+  )
+  
+} 
 
 
 calc_cond_distr <- function(tree_covar, brown_rate_mat, root_coords, trait_mat, missing_inds) {
@@ -220,9 +224,6 @@ calc_cond_distr <- function(tree_covar, brown_rate_mat, root_coords, trait_mat, 
                                                 means = root_coords, #element_list[['ls_root']], #currently set at least squares estimate of root coordinates
                                                 no_ind = kron$no_ind,
                                                 yes_ind = kron$yes_ind)
-  
-  
-  #element_list[['cond_var']] <- element_list[['cond_var_elements']]$cond_var
   
   #return(element_list[names(element_list) %in% retain])
   return(
@@ -291,17 +292,6 @@ weighted_least_squares <- function(A, Sigma_list, mu) {
   return(elementone %*% elementtwo)
 }
 
-# weighted_least_squares_softassign <- function(A, weight_mat, Sigma_list, mu) {
-#   #recover()
-#   sigma_inv <- as.matrix(Matrix::bdiag(lapply(Sigma_list, solve)))
-#   sigma_weight_mat <- sigma_inv*weight_mat #this should be elementwise multiplication I think
-#   elementone <- solve(t(A)%*%sigma_weight_mat%*%A)
-#   elementtwo <- t(A)%*%sigma_weight_mat%*%mu
-#   
-#   return(elementone %*% elementtwo)
-# }
-
-
 
 condition_mvn <- function(mu, V, A) {
   
@@ -352,30 +342,13 @@ em_hardassign_wrapper <- function(times = 1,
   
   
   process_output_list <- process_em_output(output_list = est_list, 
-                                           lik_tol = lik_equality_tol)
+                                           lik_tol = lik_equality_tol,
+                                           assignment_approach = 'hard')
   
-  if (isTRUE(retain_all_outputs)) process_output_list[['output_list']] <- est_list
+  if (isTRUE(retain_all_outputs)) process_output_list[['extra']][['output_list']] <- est_list
+  #if (isTRUE(retain_all_outputs)) process_output_list[['output_list']] <- est_list
   
   return(process_output_list)
-  # #extract the likelihood vectors from each EM run
-  # like_list <- lapply(est_list, function(x) x$like_vec)
-  # 
-  # #find EM run with biggest likelihood
-  # top_like_run <- which.max(sapply(like_list, function(x) max(x, na.rm = TRUE)))
-  # 
-  # #in the biggest likelihood EM run, find the max likelihood index
-  # max_iter <- which.max(like_list[[top_like_run]])
-  # 
-  # return(
-  #   list(
-  #     top_run_index = top_like_run, #index of top EM run
-  #     top_iter_index = max_iter, #index of iter with highest likelihood in top EM run
-  #     top_lik = like_list[[top_like_run]][[max_iter]], #top likelihood
-  #     top_x = est_list[[top_like_run]]$xvec_list[[max_iter]], #top coordinates estimate
-  #     output_list = est_list #output from all the EM runs
-  #   )
-  # )
-  
 }
 
 em_softassign_wrapper <- function(times = 1,
@@ -388,9 +361,7 @@ em_softassign_wrapper <- function(times = 1,
                                   sp_bounds,
                                   retain_all_outputs = TRUE,
                                   starting_location_seed = NULL) {
-  
   #recover()
-  
   #need to fix seed
   est_list <- list()
   
@@ -403,17 +374,71 @@ em_softassign_wrapper <- function(times = 1,
                                      sp_bounds = sp_bounds,
                                      starting_location_seed = starting_location_seed
     )
+    
     message('finished ', est)
+    
   }
   
-  process_output_list <- process_em_output(output_list = est_list, 
-                                           lik_tol = lik_equality_tol)
   
-  if (isTRUE(retain_all_outputs)) process_output_list[['output_list']] <- est_list
+  process_output_list <- process_em_output(output_list = est_list, 
+                                           lik_tol = lik_equality_tol,
+                                           assignment_approach = 'soft')
+  
+  if (isTRUE(retain_all_outputs)) process_output_list[['extra']][['output_list']] <- est_list
+  #if (isTRUE(retain_all_outputs)) process_output_list[['output_list']] <- est_list
   
   return(process_output_list)
-  
 }
+
+em_softassign_wrapper_par <- function(times = 1,
+                                      cond_mean = cond_mean_list, 
+                                      cond_var = cond_var_list, 
+                                      k, 
+                                      max_stp = 20, 
+                                      conv_thresh = 1e-5,
+                                      lik_equality_tol = 1e-6,
+                                      sp_bounds,
+                                      retain_all_outputs = TRUE,
+                                      starting_location_seed = NULL) {
+  
+  progressr::with_progress({
+    
+    p <- progressr::progressor(steps = times)
+    
+    est_list <- future.apply::future_lapply(
+      seq_len(times),
+      function(est) {
+        
+        result <- em_softassign(
+          cond_mean = cond_mean, 
+          cond_var = cond_var, 
+          k = k, 
+          max_stp = max_stp, 
+          conv_thresh = conv_thresh, 
+          sp_bounds = sp_bounds,
+          starting_location_seed = starting_location_seed
+        )
+        
+        p(sprintf("Finished %d/%d", est, times))
+        
+        result
+      }
+    )
+  })
+  
+  process_output_list <- process_em_output(
+    output_list = est_list,
+    lik_tol = lik_equality_tol,
+    assignment_approach = "soft"
+  )
+  
+  if (isTRUE(retain_all_outputs)) {
+    process_output_list[["output_list"]] <- est_list
+  }
+  
+  return(process_output_list)
+}
+
 
 
 em_hardassign <- function(cond_mean, 
@@ -512,8 +537,11 @@ em_hardassign <- function(cond_mean,
                                 cond_var[[i]],
                                 normalize = FALSE)
       #find the node location pairing that maximizes the likelihood
-      group_info_list[[i]] <- which(lik_info == max(lik_info), arr.ind = TRUE)[1,]
+      group_info_list[[i]] <- which(lik_info == max(lik_info), arr.ind = TRUE, useNames = TRUE)[1,]
       
+      #overly complicated way of assigning node names to the population labels
+      names(group_info_list[[i]]) <- paste0(i, "_", c(gsub("loc.*", "", rownames(lik_info)[group_info_list[[i]][1]]), gsub("loc.*", "", colnames(lik_info)[group_info_list[[i]][2]])))
+      #names(group_info_list[[i]]) <- paste0('tree', i, c('_node1', '_node2'))
       # group_like[[i]] <- logL_groupmat(X = matrix(Xold, ncol = 2, byrow = TRUE), 
       #                                                        group_count = k, 
       #                                                        cond_mean[[i]], 
@@ -522,7 +550,6 @@ em_hardassign <- function(cond_mean,
       # group_info_list[[i]] <- which(group_like[[i]] == max(group_like[[i]]), arr.ind = TRUE)[1,]
       
     }
-    
     #all_lik_list[[stp]] <- group_like
     
     group_vec <- unlist(group_info_list) #vector version of node memberships
@@ -568,15 +595,6 @@ em_hardassign <- function(cond_mean,
     #if the current lik is less than the previous lik, write a warning
     if (loglik_list[[stp]] < loglik_list[[stp - 1]] ) {
       warning('The likelihood decreased!')
-      
-      # return(
-      #   list(
-      #     newlik = loglik_list[[stp]],
-      #     oldlik = loglik_list[[stp - 1]],
-      #     zvec_list = zvec_list,
-      #     xvec_list = xvec_list
-      #   )
-      # )
       
     }
     
@@ -727,7 +745,7 @@ em_softassign <- function(cond_mean,
         list(
           newlik = loglik_list[[stp]],
           oldlik = loglik_list[[stp - 1]],
-          weight_list = weight_list,
+          group_membership_list = weight_list,
           xvec_list = xvec_list,
           q_list = q_list
         )
@@ -751,7 +769,7 @@ em_softassign <- function(cond_mean,
          final_loglik = loglik_list[[length(loglik_list)]], #final loglik
          convergence = convergence,
          xvec_list = xvec_list, #location estimates from each iter
-         weight_list = weight_list, #list of weights from each step
+         group_membership_list = weight_list, #list of weights from each step
          like_vec = unlist(loglik_list), #log liks from each step of EM
          iter_count = stp, #number of iters,
          q_list = q_list
@@ -813,7 +831,6 @@ normalize_loglik <- function(loglik_mat) {
 }
 
 
-
 logL_groupmat_multitree <- function(Xvec, 
                                     group_count, 
                                     cond_mean_list, 
@@ -840,8 +857,11 @@ logL_groupmat_multitree <- function(Xvec,
 }
 
 
-
-logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FALSE) {
+logL_groupmat <- function(Xmat, 
+                          group_count, 
+                          cond_mean, 
+                          cond_var,
+                          normalize = FALSE) {
   #recover()
   if (!is.matrix(Xmat) || ncol(Xmat) != 2 || nrow(Xmat) != group_count) {
     stop("Xmat must be a matrix with 2 columns and group_count rows.")
@@ -863,7 +883,10 @@ logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FA
   ##| (node1-loc2; node2-loc1)    (node1-loc2; node2-loc2) |
   ##  ________________________    ________________________
   
+  node_names <- unique(gsub(":[xy]", "", rownames(cond_mean))) #node1, node2
   like_mat <- matrix(data = 0, nrow = group_count, ncol = group_count)
+  dimnames(like_mat) <- list(paste0(node_names[1], paste0('loc_', 1:group_count)),
+                             paste0(node_names[2], paste0('loc_', 1:group_count)))
   
   for (NODE1 in seq_len(group_count)) {
     for (NODE2 in seq_len(group_count)) {
@@ -880,7 +903,7 @@ logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FA
   }
   
   #NORMALIZE: normalize the likelihoods so that they sum to 1. Because we are
-  #initially calculating log likelihoods, I using the log-sum-exp approach to
+  #initially calculating log likelihoods, I am using the log-sum-exp approach to
   #avoid underflow issues
   #https://gregorygundersen.com/blog/2020/02/09/log-sum-exp/
   if (isTRUE(normalize)) return(normalize_loglik(loglik_mat = like_mat))
@@ -890,12 +913,13 @@ logL_groupmat <- function(Xmat, group_count, cond_mean, cond_var, normalize = FA
 
 
 
-
 ############################
 ### PROCESSING FUNCTIONS ###
 ############################
 
-#greedy matching approach where locations are matched sequentially based on ranked proximity
+#FUNCTIONS FOR PROCESSING THE EM OUTPUT
+
+#greedy matching approach where locations are matched sequentially based on proximity
 #(the closest locations are matched, second closest are matched, etc)
 ranked_match_up <- function(ref_location, compare_location) {
   #recover()
@@ -940,24 +964,29 @@ ranked_match_up <- function(ref_location, compare_location) {
   }
   
   ref_df <- as.data.frame(ref_location)
+  ref_df[,'original_group'] <- seq_len(nrow(ref_df))
   ref_df[,'ref_group'] <- seq_len(nrow(ref_df))
   
   ref_df_reorder <- ref_df[matchup_df$ref_group,]
   
   compare_df <- as.data.frame(compare_location)
+  compare_df[,'original_group'] <- seq_len(nrow(compare_df))
   compare_df_reorder <- compare_df[matchup_df$compare_group,]
   compare_df_reorder[,'ref_group'] <- ref_df_reorder$ref_group
   
-  #reset rownames
   ref_final <- ref_df_reorder[order(ref_df_reorder$ref_group),]
   compare_final <- compare_df_reorder[order(compare_df_reorder$ref_group),]
+  
+  #reset rownames
   rownames(ref_final) <- NULL
   rownames(compare_final) <- NULL
   
-  return(list(matchup_df,
-              ref_group_reorder = ref_final,
-              compare_group_reorder = compare_final
-              ))
+  return(
+    list(matchup_df,
+         ref_group_reorder = ref_final,
+         compare_group_reorder = compare_final
+         )
+    )
 }
 
 
@@ -966,6 +995,7 @@ ranked_match_up_multi <- function(x_list) {
   if (length(x_list) == 1) {
     x_list[[1]] <- as.data.frame(x_list[[1]])
     colnames(x_list[[1]]) <- c('x', 'y')
+    x_list[[1]]$original_group <- 1:nrow(x_list[[1]])
     x_list[[1]]$ref_group <- 1:nrow(x_list[[1]])
     return(x_list)
   }
@@ -984,14 +1014,15 @@ ranked_match_up_multi <- function(x_list) {
 }
 
 
+
 duplicated_matrix <- function(matrix_list, tol = 1e-8) {
   #matrix version of duplicated function to identify duplicated matrices
   equality_vec <- rep(FALSE, length(matrix_list))
   for (i in seq_along(matrix_list)) {
     if (i > 1) {
       for (x in seq_len(i - 1)) {
-        #setting check.attributes to FALSE because this return not equal if attributes (like row names) are different,
-        #which we don't care about
+        #setting check.attributes to FALSE because this will return not equal if attributes (like row names)
+        #are different, which we don't care about
         CHECK <- isTRUE(all.equal(matrix_list[[x]], matrix_list[[i]], tolerance = tol, check.attributes = FALSE))
         if (CHECK) {
           equality_vec[i] <- TRUE
@@ -1005,7 +1036,82 @@ duplicated_matrix <- function(matrix_list, tol = 1e-8) {
 }
 
 
-process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-12) {
+convert_labels <- function(old_label, label_map_original, label_map_new) {
+  
+  new_label <- setNames(rep(NA, length(old_label)), nm = names(old_label))
+  
+  for (i in seq_along(label_map_original)) {
+    original_label <- label_map_original[i]
+    updated_label <- label_map_new[i]
+    new_label[old_label == original_label] <- updated_label
+  }
+  
+  return(new_label)
+}
+
+convert_labels_multi <- function(membership_list, matchup_list) {
+  
+  stopifnot(length(membership_list) == length(matchup_list))
+  
+  if (length(membership_list) == 1) {
+    return(membership_list)
+  }
+  
+  membership_list_new <- list()
+  membership_list_new[[1]] <- membership_list[[1]]
+  for (i in 2:length(membership_list)) {
+    membership_list_new[[i]] <- convert_labels(old_label = membership_list[[i]], 
+                                               label_map_original = matchup_list[[i]]$original_group, 
+                                               label_map_new = matchup_list[[i]]$ref_group)
+  }
+  return(membership_list_new)
+}
+
+
+relabel_mat_names_list_multi <- function(multi_mat_list, map_list, order_sequentially = FALSE) {
+  stopifnot(length(multi_mat_list) == length(map_list))
+  
+  output_list <- list()
+  
+  for (x in 1:length(multi_mat_list)) {
+    output_list[[x]] <- relabel_mat_names_list(mat_list = multi_mat_list[[x]], 
+                                               map = map_list[[x]])
+    
+    if (isTRUE(order_sequentially)) {
+      #all 
+      order_ind <- order(as.numeric(sub(".*loc_", "", rownames(output_list[[x]][[1]]))))
+      output_list[[x]] <- lapply(output_list[[x]], function(x, ind) {x[ind,ind]}, ind = order_ind)
+      
+    }
+    
+  }
+  return(output_list)
+}
+
+
+relabel_mat_names_list <- function(mat_list, map) {
+  
+  for (i in 1:length(mat_list)) {
+    rownames(mat_list[[i]]) <- relabel_loc(name_vec = rownames(mat_list[[i]]), map = map)
+    colnames(mat_list[[i]]) <- relabel_loc(name_vec = colnames(mat_list[[i]]), map = map)
+  }
+  
+  return(mat_list)
+  
+}
+
+
+relabel_loc <- function(name_vec, map) {
+  loc <- as.numeric(sub(".*loc_", "", name_vec))
+  new_loc <- map$ref_group[match(loc, map$original_group)]
+  
+  new_name <- paste0(sub("loc_.*","", name_vec), paste0("loc_", new_loc))
+  return(new_name)
+}
+
+
+
+process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-12, assignment_approach = c('soft', 'hard')) {
   #recover()
   like_list <- lapply(output_list, function(x) x$like_vec) #likelihood vecs from each run
   top_like_vec <- sapply(like_list, function(x) max(x, na.rm = TRUE)) #top likelihood from each run
@@ -1014,35 +1120,168 @@ process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-1
   
   #extract the top likelihood index from each run
   x_list <- list()
+  group_membership_list <- list()
   for (i in 1:length(top_runs)) {
     top_ind <- which.max(top_runs[[i]]$like_vec)[1] #if there are multiple equal, top indices, choose the first one
     x_list[[i]] <- matrix(top_runs[[i]]$xvec_list[[top_ind]], ncol = 2, byrow = 2)
+    group_membership_list[[i]] <- top_runs[[i]]$group_membership_list[[top_ind]] #node assignments from the top lik step
   }
   
   #greedy match up approach of groups based on the matrix
   xlist_ranked_matchup <- ranked_match_up_multi(x_list = x_list)
   
+  convert_labels_list <-  switch(assignment_approach,
+         'soft_assign' = {
+           relabel_mat_names_list_multi(multi_mat_list = group_membership_list, 
+                                        map_list = xlist_ranked_matchup, 
+                                        order_sequentially = TRUE)
+         },
+         'hard_assign' = {
+           convert_labels_multi(membership_list = group_membership_list, 
+                                matchup_list = xlist_ranked_matchup)
+         })
+  
+  
+  #convert_labels_list <- convert_labels_multi(membership_list = group_membership_list, 
+  #                                            matchup_list = xlist_ranked_matchup)
+  
   #remove duplicates
-  duplicated_indices <- duplicated_matrix(matrix_list = xlist_ranked_matchup, tol = duplicated_tol)
+  #compare matrices but only compare the x and y coordinates. The reference column should
+  #match up but the original groups column shouldn't be compared.
+  duplicated_indices <- duplicated_matrix(matrix_list = lapply(ranked_match_up_multi(xlist_ranked_matchup), function(x) x[,c('x', 'y')]), 
+                                          tol = duplicated_tol)
   xlist_remove_duplicates <- xlist_ranked_matchup[!duplicated_indices]
+  group_membership_list_remove_duplicates <- group_membership_list[!duplicated_indices]
+  convert_labels_list_remove_duplicates <- convert_labels_list[!duplicated_indices]
+  
+  extra_info <- list(maxlik_indices = max_indices,
+                     max_lik_group_membership_list_nonreorder = group_membership_list_remove_duplicates,
+                     nonduplicated_indices = max_indices[!duplicated_indices],
+                     group_membership_list = group_membership_list)
   
   return(
     list(
       max_lik_xmat_list = xlist_remove_duplicates,
+      max_lik_group_membership_list = convert_labels_list_remove_duplicates,
       max_lik = max(top_like_vec),
-      maxlik_indices = max_indices,
-      nonduplicated_indices = max_indices[!duplicated_indices] #the matrices 
+      extra_info = extra_info
     )
   )
-  
 }
-
 
 
 
 #####################
 ### OLD FUNCTIONS ###
 #####################
+
+# process_em_output_softassign <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-12) {
+#   #recover()
+#   like_list <- lapply(output_list, function(x) x$like_vec) #likelihood vecs from each run
+#   top_like_vec <- sapply(like_list, function(x) max(x, na.rm = TRUE)) #top likelihood from each run
+#   max_indices <- which(abs(top_like_vec - max(top_like_vec)) <= lik_tol) #indices of top likelihoods across runs
+#   top_runs <- output_list[max_indices] #subset output to top runs
+#   
+#   #extract the top likelihood index from each run
+#   x_list <- list()
+#   group_membership_list <- list()
+#   for (i in 1:length(top_runs)) {
+#     top_ind <- which.max(top_runs[[i]]$like_vec)[1] #if there are multiple equal, top indices, choose the first one
+#     x_list[[i]] <- matrix(top_runs[[i]]$xvec_list[[top_ind]], ncol = 2, byrow = 2)
+#     group_membership_list[[i]] <- top_runs[[i]]$group_membership_list[[top_ind]] #node assignments from the top lik step
+#   }
+#   
+#   #greedy match up approach of groups based on the matrix
+#   xlist_ranked_matchup <- ranked_match_up_multi(x_list = x_list)
+#   
+#   convert_labels_list <- relabel_mat_names_list_multi(multi_mat_list = group_membership_list, 
+#                                                       map_list = xlist_ranked_matchup, 
+#                                                       order_sequentially = TRUE)
+#     
+#   #convert_labels_list <- convert_labels_multi(membership_list = group_membership_list, 
+#   #                                            matchup_list = xlist_ranked_matchup)
+#   
+#   #remove duplicates
+#   #compare matrices but only compare the x and y coordinates. The reference column should
+#   #match up but the original groups column shouldn't be compared.
+#   duplicated_indices <- duplicated_matrix(matrix_list = lapply(ranked_match_up_multi(xlist_ranked_matchup), function(x) x[,c('x', 'y')]), 
+#                                           tol = duplicated_tol)
+#   xlist_remove_duplicates <- xlist_ranked_matchup[!duplicated_indices]
+#   group_membership_list_remove_duplicates <- group_membership_list[!duplicated_indices]
+#   convert_labels_list_remove_duplicates <- convert_labels_list[!duplicated_indices]
+#   
+#   extra_info <- list(maxlik_indices = max_indices,
+#                      max_lik_group_membership_list_nonreorder = group_membership_list_remove_duplicates,
+#                      nonduplicated_indices = max_indices[!duplicated_indices],
+#                      group_membership_list = group_membership_list)
+#   
+#   return(
+#     list(
+#       max_lik_xmat_list = xlist_remove_duplicates,
+#       max_lik_group_membership_list = convert_labels_list_remove_duplicates,
+#       max_lik = max(top_like_vec),
+#       extra_info = extra_info
+#     )
+#   )
+# }
+
+# weighted_least_squares_softassign <- function(A, weight_mat, Sigma_list, mu) {
+#   #recover()
+#   sigma_inv <- as.matrix(Matrix::bdiag(lapply(Sigma_list, solve)))
+#   sigma_weight_mat <- sigma_inv*weight_mat #this should be elementwise multiplication I think
+#   elementone <- solve(t(A)%*%sigma_weight_mat%*%A)
+#   elementtwo <- t(A)%*%sigma_weight_mat%*%mu
+#   
+#   return(elementone %*% elementtwo)
+# }
+
+
+# process_em_output_hardassign <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-12) {
+#   #recover()
+#   like_list <- lapply(output_list, function(x) x$like_vec) #likelihood vecs from each run
+#   top_like_vec <- sapply(like_list, function(x) max(x, na.rm = TRUE)) #top likelihood from each run
+#   max_indices <- which(abs(top_like_vec - max(top_like_vec)) <= lik_tol) #indices of top likelihoods across runs
+#   top_runs <- output_list[max_indices] #subset output to top runs
+#   
+#   #extract the top likelihood index from each run
+#   x_list <- list()
+#   group_membership_list <- list()
+#   for (i in 1:length(top_runs)) {
+#     top_ind <- which.max(top_runs[[i]]$like_vec)[1] #if there are multiple equal, top indices, choose the first one
+#     x_list[[i]] <- matrix(top_runs[[i]]$xvec_list[[top_ind]], ncol = 2, byrow = 2)
+#     group_membership_list[[i]] <- top_runs[[i]]$group_membership_list[[top_ind]] #node assignments from the top lik step
+#   }
+#   
+#   #greedy match up approach of groups based on the matrix
+#   xlist_ranked_matchup <- ranked_match_up_multi(x_list = x_list)
+#   
+#   convert_labels_list <- convert_labels_multi(membership_list = group_membership_list, 
+#                                               matchup_list = xlist_ranked_matchup)
+#   
+#   #remove duplicates
+#   #compare matrices but only compare the x and y coordinates. The reference column should
+#   #match up but the original groups column shouldn't be compared.
+#   duplicated_indices <- duplicated_matrix(matrix_list = lapply(ranked_match_up_multi(xlist_ranked_matchup), function(x) x[,c('x', 'y')]), 
+#                                           tol = duplicated_tol)
+#   xlist_remove_duplicates <- xlist_ranked_matchup[!duplicated_indices]
+#   group_membership_list_remove_duplicates <- group_membership_list[!duplicated_indices]
+#   convert_labels_list_remove_duplicates <- convert_labels_list[!duplicated_indices]
+#   
+#   extra_info <- list(maxlik_indices = max_indices,
+#                      max_lik_group_membership_list_nonreorder = group_membership_list_remove_duplicates,
+#                      nonduplicated_indices = max_indices[!duplicated_indices],
+#                      group_membership_list = group_membership_list)
+#   
+#   return(
+#     list(
+#       max_lik_xmat_list = xlist_remove_duplicates,
+#       max_lik_group_membership_list = convert_labels_list_remove_duplicates,
+#       max_lik = max(top_like_vec),
+#       extra_info = extra_info
+#     )
+#   )
+# }
+
 
 # posterior_prob_locs <- function(pars,
 #                                 cond_param_list,
