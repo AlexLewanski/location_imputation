@@ -130,7 +130,7 @@ process_tree <- function(tree, trait, brown_rate_mat, root_coords, missing_inds,
 
 process_trees <- function(tree_list, trait, brown_rate_mat, root_coords_list, missing_inds, progress = TRUE) {
   
-  if (isTRUE(progress)) prog_bar <- txtProgressBar(min = 1, max = length(tree_list), style = 3, char = "+")
+  if (isTRUE(progress)) prog_bar <- txtProgressBar(min = 0, max = length(tree_list), style = 3, char = "+")
   
   cond_info_list <- list()
   for (i in 1:length(tree_list)) {
