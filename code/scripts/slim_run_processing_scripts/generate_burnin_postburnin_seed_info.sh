@@ -24,13 +24,13 @@ base_file_name=basename_file.txt
 burnin_reps=2
 
 ### VARIABLES FOR POSTBURNIN SIMS ###
-k_reps=4
-k_vals=($(seq 2 4))
+k_reps=10
+k_vals=($(seq 1 4))
 
 ### VARIABLES FOR BOTH BURNIN AND POSTBURNIN SIMS ###
-BURNIN_RUNTIME=(5000)
+BURNIN_RUNTIME=(10000)
 SIGMA_DISPERSE=(1.5 2.0 2.5)
-CARRYING_CAPACITY=(0.15)
+CARRYING_CAPACITY=(0.17)
 
 
 ### CHECKS TO MAKE SURE THE FILES DON'T ALREADY EXIST ###
@@ -95,6 +95,10 @@ done
 #####################
 ### SIM NAME FILE ###
 #####################
+
+#overwrite existing base_name file so that there isn't old basenames in there
+: > "$top_level_dir/$base_file_name"
+
 for BURN in "${BURNIN_RUNTIME[@]}"; do
   for DISP in "${SIGMA_DISPERSE[@]}"; do
     for CAR in "${CARRYING_CAPACITY[@]}"; do
