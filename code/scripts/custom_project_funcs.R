@@ -18,7 +18,7 @@
 
 #read in a list of newick trees that are stored in a single gzipped file with
 #each tree on its own line
-trees_from_gz <- function(file_name) {
+read_trees_from_gz <- function(file_name) {
   
   connect <- gzfile(file_name, open = "rt")
   on.exit(close(connect)) #closes connection even with an error when loading the trees
