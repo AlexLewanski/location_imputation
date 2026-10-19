@@ -11,28 +11,65 @@ library(here)
 library(dplyr)
 library(ggplot2)
 library(ape)
-#library(phytools)
 
-source(here('code', 'scripts', 'location_est_code.R'))
+#source(here('code', 'scripts', 'location_est_code.R'))
+#devtools::install("/Users/alexlewanski/Documents/r_packages/point")
+library(point)
+
+source(here('code', 'scripts', 'custom_project_funcs.R'))
+
 
 
 #######################
 ### PROCESSING INFO ###
 #######################
 
-#true_rate_mat <- diag(4, nrow = 2)
+base_file_name <- 'POSTBURNIN_BURNINREP1_RUNTIME10000_DISP2.0_CC0.17_K1_Kreps10_sampsize150'
+base_file_name_minussamp <- gsub("_sampsize1[0-9]*", "", base_file_name)
+
+tree_list <- read_trees_from_gz(file_name = here('simulation_output', 'processed_treeseq', base_file_name, paste0(base_file_name, '.nwk.gz')))
 
 
-files_vec <- list.files(here('simulation_output', 'test_notracking'), full.names = TRUE)
-tree_list <- lapply(files_vec[grep(".*nwk$", files_vec)],
-                    function(x) ape::read.tree(x)) 
+# files_vec <- list.files(here('simulation_output', 'processed_treeseq', base_file_name), full.names = TRUE)
+# tree_list <- lapply(files_vec[grep(".*nwk$", files_vec)],
+#                     function(x) ape::read.tree(x)) 
+# 
+# con <- gzfile(here('simulation_output', 'processed_treeseq', base_file_name, paste0(base_file_name, '.nwk.gz')), open = "rt")
+# tree_strings <- readLines(con)
+# close(con)
+# 
+# tree_list_alt <- lapply(
+#   tree_strings,
+#   function(x) ape::read.tree(text = x)
+# )
+# 
+# tree_list <- lapply(files_vec[grep(".*nwk$", files_vec)],
+#                     function(x) ape::read.tree(x)) 
 
-
-indiv_node_info <- read.delim(here('simulation_output', 'test_notracking', 'indiv_node_info.txt'), header = TRUE)
+indiv_node_info <- read.delim(here('simulation_output',
+                                   'processed_treeseq', 
+                                   base_file_name,
+                                   paste0(base_file_name, '_indiv_node_info.txt')), header = TRUE)
 indiv_node_info$n_node <- paste0('n', indiv_node_info$node)
 
+
+
+offspring_info <- read.delim(here('simulation_output', 
+                                  'postburnin_sims',
+                                  paste0('offspring_info_', base_file_name_minussamp, '.txt')), header = TRUE, sep = " ")
+
+parent_locs <- read.delim(here('simulation_output', 
+                               'postburnin_sims',
+                               paste0('parents_locs_ped_', base_file_name_minussamp, '.txt')), header = TRUE, sep = " ")
+
+admix_node_info <- read.delim(here('simulation_output',
+                                   'processed_treeseq',
+                                   base_file_name,
+                                   paste0(base_file_name, '_admix_node_info.txt')), header = TRUE)
+
+
 #let's just use 75 trees for the example
-tree_list_subset1 <- tree_list[1:75]
+tree_list_subset1 <- tree_list[1:200]
 
 
 
@@ -42,7 +79,7 @@ tree_list_subset1 <- tree_list[1:75]
 
 ### EXAMPLE FOR ONE INDIVIDUAL ###
 #let's pick an individual to use as the unknown individual 
-MISSING_INDIV <- 29
+MISSING_INDIV <- 51
 MISSING_NODES <- indiv_node_info$n_node[indiv_node_info$indiv == MISSING_INDIV]
 
 #the location information for the georeferenced individuals (unknown individual is removed)
@@ -152,8 +189,100 @@ em_singleloc_softassign <- em_softassign(cond_mean = cond_mean_list,
 )
 
 #same estimates as the other approaches
-em_singleloc_hardassign$final_x
+
 em_singleloc_softassign$final_x
+
+
+#################
+#################
+#################
+
+
+
+cond_mean_df <- do.call(rbind,lapply(cond_mean_list, function(df) data.frame(x = df[c(1,3)], y = df[c(2,4)])))
+
+
+single_loc_example <- ggplot() +
+  annotate("rect", 
+           xmin = 0, xmax = 100,       # Start and end on X axis
+           ymin = 0, ymax = 100,  # Stretch completely from bottom to top on Y axis
+           fill = "#e5e5e5", #"#fac9c3",       # Background color
+           alpha = 0.4) +
+  geom_point(data = cond_mean_df,
+             aes(x = x, y = y), shape = 8,
+             color = '#20a39e', size = 0.75, alpha = 0.4) +
+  geom_point(data = as.data.frame(miss_info_mat),
+             aes(x = x, y = y),
+             color = '#999999', size = 0.7, alpha = 0.3) +
+  geom_point(data = data.frame(x = em_singleloc_hardassign$final_x[1], y = em_singleloc_hardassign$final_x[2]),
+             aes(x = x, y = y),
+             shape = 21, fill = '#20a39e', color = 'white', size = 5, alpha = 1) +
+  geom_point(data = indiv_node_info[indiv_node_info$n_node %in% c(MISSING_NODES),][1,c('x', 'y')],
+             aes(x, y), shape = 21, size = 1.5, fill = 'black', color = '#20a39e', stroke = 1.15) +
+  #geom_point(data = ancestor_locs,
+  #           aes(x, y), shape = 21, size = 1.5, fill = 'black', color = 'blue', stroke = 1.15) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        #panel.grid.major = element_line(color = '#e5e5e5', linetype = 'dashed'),
+        panel.grid.major = element_blank(),
+        panel.border = element_rect(colour = '#e5e5e5', fill = NA, linewidth = 0.75),
+        plot.title = element_text(hjust = 0.5, size = 15))
+
+
+
+ggsave(single_loc_example,
+       filename = here('plots', 'tmp', 'single_loc_example.png'),
+       width = 5*1.1, height = 3.9*1.1,
+       bg = 'white')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -162,8 +291,8 @@ em_singleloc_softassign$final_x
 #######################################################################
 
 tree_count <- 50
-#indiv_count <- 75
-indiv_count <- length(unique(indiv_node_info$indiv))
+indiv_count <- 40
+#indiv_count <- length(unique(indiv_node_info$indiv))
 
 tree_list_subset2 <- tree_list[1:tree_count]
 

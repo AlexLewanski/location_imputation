@@ -14,12 +14,12 @@ library(dplyr)
 library(ggplot2)
 library(ape)
 library(phytools)
-library(treesliceR)
+#library(treesliceR)
 
 
 ### LOADING CUSTOM FUNCTIONS ###
-source(here('code', 'scripts', 'location_est_code.R'))
-
+#source(here('code', 'scripts', 'location_est_code.R'))
+library(point)
 
 ### LOADING DATA (GENEALOGIES, INDIVIDUAL INFO, ETC...) ###
 #here('simulation_output', 'tree_dir')

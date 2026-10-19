@@ -24,7 +24,7 @@ while IFS= read -r FILE_NAME; do
 
         output_file_name=${FILE_NAME}_sampsize${SAMP_SIZE}
         #output_file_name=$(basename ${raw_tree_file} .trees)_sampsize${SAMP_SIZE}
-        mkdir ${output_dir}/${output_file_name}
+        mkdir -p ${output_dir}/${output_file_name}
 
         python3 process_tree_file_commandline_alt.py \
         --tree_sep 50 \
@@ -33,6 +33,7 @@ while IFS= read -r FILE_NAME; do
         --ts_name ${raw_tree_file} \
         --output_file_path ${output_dir}/${output_file_name}/ \
         --output_tree_path ${output_dir}/${output_file_name}/ \
+        --tree_output gzipped \
         --output_prefix $output_file_name \
         --recomb_rate 1e-8 \
         --ne 500 \

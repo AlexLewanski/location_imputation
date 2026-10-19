@@ -22,7 +22,7 @@ read_trees_from_gz <- function(file_name) {
   
   connect <- gzfile(file_name, open = "rt")
   on.exit(close(connect)) #closes connection even with an error when loading the trees
-  tree_name <- readLines(connect) 
+  tree_name <- readLines(connect)
   
   return(lapply(tree_name, function(x) ape::read.tree(text = x)))
 }

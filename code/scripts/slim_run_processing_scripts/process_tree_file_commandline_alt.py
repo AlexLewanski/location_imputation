@@ -1,16 +1,20 @@
 ########################
 ### LOADING PACKAGES ###
 ########################
-#import sys
+
 import argparse
 import tskit
-#import msprime
+import msprime
 import numpy as np
 import pyslim
+import random
+import gzip
+
+#import sys
+#import msprime
 #import networkx as nx
 #from IPython.display import SVG
 #import math
-import random
 
 #tree_separation = 50
 #ts_upload_path = '/Users/alexlewanski/Documents/michigan_state/research/location_imputation/simulation_output/admix_sim/'
@@ -27,6 +31,12 @@ parser.add_argument("--ts_upload_path", "-u", help="upload path for processed tr
 parser.add_argument("--ts_name", "-m", help="name of tree sequence to upload")
 parser.add_argument("--output_file_path", "-o", help="output path for files")
 parser.add_argument("--output_tree_path", "-p", help="output path for newick trees")
+parser.add_argument(
+    "--tree_output",
+    choices=["separate", "gzipped", "both"],
+    default="gzipped",
+    help="Newick output format: separate files, one gzipped file, or both (default: gzipped)",
+)
 parser.add_argument("--output_prefix", "-f", help="output name for newick trees")
 parser.add_argument("--recomb_rate", "-r", type=float, help="recombination rate for msprime simulation")
 parser.add_argument("--ne", "-n", type=float, help="effective size for msprime simulation")
@@ -34,77 +44,7 @@ parser.add_argument("--seed", "-d", type=float, help="random seed")
 
 args = parser.parse_args()
 
-'''
-def ancestor_at_time_multitree_nodes(ts, nodes, time):
-    tree_index_list = []
-    node_list = []
-    sample_node_list = []
-    
-    for NODE in nodes:
-        output = ancestor_at_time_multitree(ts = ts, node = NODE, time = time)
-        tree_index_list.extend(output['tree_index'])
-        node_list.extend(output['node'])
-        sample_node_list.extend(ts.num_trees * [NODE])
-    
-    return({
-        "tree_index": tree_index_list,
-        "ancestor_node": node_list,
-        "sample_node": sample_node_list
-    })
-    
 
-#COMMENT OUT?
-def ancestor_at_time_multitree(ts, node, time):
-    node_list = []
-    for TREE in ts.trees():
-        node_list.append(ancestor_at_time(tree = TREE, node = node, time = time))
-    
-    #[i[0] for i in node_list]
-    return({"tree_index": [i for i in range(0, ts.num_trees, 1)],
-            "node":node_list})
-
-#COMMENT OUT?
-def ancestor_at_time(tree, node, time):
-    node_collector = [node]
-    node_age = [tree.time(node)]
-    new_time = tree.time(node)
-    while new_time < time:
-        new_node = tree.parent(node_collector[-1])
-        new_time = tree.time(new_node)
-        
-        if new_time <= time:
-            node_collector.append(new_node)
-            node_age.append(new_time) 
-    
-        #return(
-    #   [node_collector[i] if abs(age - time) <= 1e-15 else -9999 for i, age in enumerate(node_age)]
-    #)
-    if abs(node_age[-1] - time) <= 1e-15:
-        return(node_collector[-1])
-    else:
-        return(-9999)
-
-#COMMENT OUT
-def combine_elements_index(val):
-    new_val = []
-    ind_list = []
-    index = 0
-    for i,VAL in enumerate(val):
-        if index == 0:
-            left_ind = i
-            new_val.append(VAL)
-            index += 1
-        
-        if i == (len(val) - 1):
-            ind_list.append([left_ind, i])
-        elif VAL != val[i + 1]:
-            ind_list.append([left_ind, i])
-            index = 0
-    return(
-        {"val":new_val,
-         "ind_list":ind_list}
-    )
-'''
 
 def extract_samples_multipop(ts, exclude_pops):
     sample_node_list=[]
@@ -244,6 +184,197 @@ subsamp_node_list = [spatial_ts1.individual(x).nodes for x in subsample_sample]
 #2C: simplify (and request node map)
 spatial_ts1_reduced,node_map = spatial_ts1.simplify(np.concatenate([np.concatenate(subsamp_node_list), admix_nodes_original]),
                                            map_nodes = True)
+
+
+#admix_nodes = spatial_ts2_reduced[0].samples(population = 0)
+admix_nodes = extract_samples_multipop(spatial_ts1_reduced, exclude_pops = [0])["sample_node_list"]
+
+column_names = ['node', 'indiv', 'ped_id', 'p1_ped_id', 'p2_ped_id']
+
+with open(args.output_file_path + args.output_prefix + '_admix_node_info.txt', 'w') as file:
+    # Write the rows, aligning each list as a column
+    file.write("\t".join(column_names) + "\n")
+    for NODE in admix_nodes:
+        focal_indiv = spatial_ts1_reduced.individual(spatial_ts1_reduced.node(NODE).individual)
+        row = f"{NODE}\t{focal_indiv.id}\t{focal_indiv.metadata['pedigree_id']}\t{focal_indiv.metadata['pedigree_p1']}\t{focal_indiv.metadata['pedigree_p2']}\n"
+        file.write(row)
+
+
+### EXTRACTING INFO ABOUT INDIVIDUALS (COORDINATES AND NODES ASSOCIATED WITH EACH INDIV) ###
+sample_list_rename = np.unique(spatial_ts1_reduced.nodes_individual[np.where(spatial_ts1_reduced.nodes_flags == 1)])
+
+indiv_list = []
+node_list = []
+x_list = []
+y_list = []
+
+for INDIV in sample_list_rename:
+    for NODE in spatial_ts1_reduced.individual(INDIV).nodes:
+        indiv_list.append(INDIV)
+        node_list.append(NODE)
+        x_list.append(spatial_ts1_reduced.individual(INDIV).location[0])
+        y_list.append(spatial_ts1_reduced.individual(INDIV).location[1])
+
+column_names = ['indiv', 'node', 'x', 'y']
+
+with open(args.output_file_path + args.output_prefix + '_indiv_node_info.txt', 'w') as file:
+    # Write the rows, aligning each list as a column
+    file.write("\t".join(column_names) + "\n")
+    for i,x in enumerate(indiv_list):
+            row = f"{indiv_list[i]}\t{node_list[i]}\t{x_list[i]}\t{y_list[i]}\n"
+            file.write(row)
+
+
+### OUTPUTTING TREES AS NEWICKS ###
+if args.tree_output in ("separate", "both"):
+    for TREE in range(0, spatial_ts1_reduced.num_trees, args.tree_sep):
+        with open(args.output_tree_path + args.output_prefix + str(TREE) + ".nwk", "w") as f:
+            f.write(spatial_ts1_reduced.at_index(TREE).as_newick())
+
+if args.tree_output in ("gzipped", "both"):
+    with gzip.open(args.output_tree_path + args.output_prefix + ".nwk.gz", "wt", encoding="utf-8") as f:
+        for TREE in range(0, spatial_ts1_reduced.num_trees, args.tree_sep):
+            f.write(spatial_ts1_reduced.at_index(TREE).as_newick() + "\n")
+        #print('exported' + str(TREE))
+
+
+
+#OUTPUTTING TREE SPAN AND COORDINATE INFO
+column_names = ['tree_index', 'left_interval', 'right_interval', 'span']
+with open(args.output_file_path + 'tree_interval_info.txt', 'w') as file:
+    file.write("\t".join(column_names) + "\n")
+    for TREE in range(0, spatial_ts1_reduced.num_trees, args.tree_sep):
+        left_interv = spatial_ts1_reduced.at_index(TREE).interval.left
+        right_interv = spatial_ts1_reduced.at_index(TREE).interval.right
+        span = spatial_ts1_reduced.at_index(TREE).span
+        
+        row = f"{TREE}\t{left_interv}\t{right_interv}\t{span}\n"
+        file.write(row)
+
+
+column_names = ['focal_node_simplified', 'focal_node_original', 'ancestor', 'left_interval', 'right_interval']
+
+with open(args.output_file_path + 'node_founder_ancestry_intervals.txt', 'w') as file:
+    file.write("\t".join(column_names) + "\n")
+    for index in range(len(anc_node_info_list)):
+        focal_node = anc_node_info_list[index]['focal_node']
+
+        for index1 in range(len(anc_node_info_list[index]['ancestor_list'])):
+            ancestor = anc_node_info_list[index]['ancestor_list'][index1]
+            left_interv = anc_node_info_list[index]['left_interv_list'][index1]
+            right_interv = anc_node_info_list[index]['right_interv_list'][index1]
+
+            row = f"{node_map[focal_node]}\t{focal_node}\t{ancestor}\t{left_interv}\t{right_interv}\n"
+            file.write(row)
+
+
+
+########################################
+### CODE THAT'S NOT CURRENTLY IN USE ###
+########################################
+
+### EXTRACTING INFO ABOUT THE TREES (COORDINATES OF ROOT AND GENOME SPAN) ###
+'''
+tree_index_list = []
+tree_position_list = []
+node_list = []
+x_list = []
+y_list = []
+span_list = []
+
+for i,tree_pos in enumerate(range(0, spatial_ts2_reduced[0].num_trees, args.tree_sep)):
+    tree_index_list.append(i)
+    tree_position_list.append(tree_pos)
+    x_list.append(spatial_ts2_reduced[0].individual(spatial_ts2_reduced[0].node(spatial_ts2_reduced[0].at_index(tree_pos).root).individual).location[0])
+    y_list.append(spatial_ts2_reduced[0].individual(spatial_ts2_reduced[0].node(spatial_ts2_reduced[0].at_index(tree_pos).root).individual).location[1])
+    node_list.append(spatial_ts2_reduced[0].node(spatial_ts2_reduced[0].at_index(tree_pos).root).id)
+    span_list.append(spatial_ts2_reduced[0].at_index(tree_pos).span)
+    
+column_names = ['tree_index', 'tree_position', 'node', 'x', 'y', 'span']
+
+
+with open(args.output_file_path + args.output_prefix + '_tree_position_info.txt', 'w') as file:
+    # Write the rows, aligning each list as a column
+    file.write("\t".join(column_names) + "\n")
+    for i,x in enumerate(tree_index_list):
+            row = f"{tree_index_list[i]}\t{tree_position_list[i]}\t{node_list[i]}\t{x_list[i]}\t{y_list[i]}\t{span_list[i]}\n"
+            file.write(row)
+'''
+
+
+
+
+'''
+def ancestor_at_time_multitree_nodes(ts, nodes, time):
+    tree_index_list = []
+    node_list = []
+    sample_node_list = []
+    
+    for NODE in nodes:
+        output = ancestor_at_time_multitree(ts = ts, node = NODE, time = time)
+        tree_index_list.extend(output['tree_index'])
+        node_list.extend(output['node'])
+        sample_node_list.extend(ts.num_trees * [NODE])
+    
+    return({
+        "tree_index": tree_index_list,
+        "ancestor_node": node_list,
+        "sample_node": sample_node_list
+    })
+    
+
+#COMMENT OUT?
+def ancestor_at_time_multitree(ts, node, time):
+    node_list = []
+    for TREE in ts.trees():
+        node_list.append(ancestor_at_time(tree = TREE, node = node, time = time))
+    
+    #[i[0] for i in node_list]
+    return({"tree_index": [i for i in range(0, ts.num_trees, 1)],
+            "node":node_list})
+
+#COMMENT OUT?
+def ancestor_at_time(tree, node, time):
+    node_collector = [node]
+    node_age = [tree.time(node)]
+    new_time = tree.time(node)
+    while new_time < time:
+        new_node = tree.parent(node_collector[-1])
+        new_time = tree.time(new_node)
+        
+        if new_time <= time:
+            node_collector.append(new_node)
+            node_age.append(new_time) 
+    
+        #return(
+    #   [node_collector[i] if abs(age - time) <= 1e-15 else -9999 for i, age in enumerate(node_age)]
+    #)
+    if abs(node_age[-1] - time) <= 1e-15:
+        return(node_collector[-1])
+    else:
+        return(-9999)
+
+#COMMENT OUT
+def combine_elements_index(val):
+    new_val = []
+    ind_list = []
+    index = 0
+    for i,VAL in enumerate(val):
+        if index == 0:
+            left_ind = i
+            new_val.append(VAL)
+            index += 1
+        
+        if i == (len(val) - 1):
+            ind_list.append([left_ind, i])
+        elif VAL != val[i + 1]:
+            ind_list.append([left_ind, i])
+            index = 0
+    return(
+        {"val":new_val,
+         "ind_list":ind_list}
+    )
+'''
 
 
 '''
@@ -419,108 +550,3 @@ with open(output_file_path + 'ancester_info_simplified_tree.txt', 'w') as file:
             file.write(row)
 
 '''
-#admix_nodes = spatial_ts2_reduced[0].samples(population = 0)
-admix_nodes = extract_samples_multipop(spatial_ts1_reduced, exclude_pops = [0])["sample_node_list"]
-
-column_names = ['node', 'indiv', 'ped_id', 'p1_ped_id', 'p2_ped_id']
-
-with open(args.output_file_path + args.output_prefix + '_admix_node_info.txt', 'w') as file:
-    # Write the rows, aligning each list as a column
-    file.write("\t".join(column_names) + "\n")
-    for NODE in admix_nodes:
-        focal_indiv = spatial_ts1_reduced.individual(spatial_ts1_reduced.node(NODE).individual)
-        row = f"{NODE}\t{focal_indiv.id}\t{focal_indiv.metadata['pedigree_id']}\t{focal_indiv.metadata['pedigree_p1']}\t{focal_indiv.metadata['pedigree_p2']}\n"
-        file.write(row)
-
-
-
-### EXTRACTING INFO ABOUT THE TREES (COORDINATES OF ROOT AND GENOME SPAN) ###
-'''
-tree_index_list = []
-tree_position_list = []
-node_list = []
-x_list = []
-y_list = []
-span_list = []
-
-for i,tree_pos in enumerate(range(0, spatial_ts2_reduced[0].num_trees, args.tree_sep)):
-    tree_index_list.append(i)
-    tree_position_list.append(tree_pos)
-    x_list.append(spatial_ts2_reduced[0].individual(spatial_ts2_reduced[0].node(spatial_ts2_reduced[0].at_index(tree_pos).root).individual).location[0])
-    y_list.append(spatial_ts2_reduced[0].individual(spatial_ts2_reduced[0].node(spatial_ts2_reduced[0].at_index(tree_pos).root).individual).location[1])
-    node_list.append(spatial_ts2_reduced[0].node(spatial_ts2_reduced[0].at_index(tree_pos).root).id)
-    span_list.append(spatial_ts2_reduced[0].at_index(tree_pos).span)
-    
-column_names = ['tree_index', 'tree_position', 'node', 'x', 'y', 'span']
-
-
-with open(args.output_file_path + args.output_prefix + '_tree_position_info.txt', 'w') as file:
-    # Write the rows, aligning each list as a column
-    file.write("\t".join(column_names) + "\n")
-    for i,x in enumerate(tree_index_list):
-            row = f"{tree_index_list[i]}\t{tree_position_list[i]}\t{node_list[i]}\t{x_list[i]}\t{y_list[i]}\t{span_list[i]}\n"
-            file.write(row)
-'''
-
-### EXTRACTING INFO ABOUT INDIVIDUALS (COORDINATES AND NODES ASSOCIATED WITH EACH INDIV) ###
-sample_list_rename = np.unique(spatial_ts1_reduced.nodes_individual[np.where(spatial_ts1_reduced.nodes_flags == 1)])
-
-indiv_list = []
-node_list = []
-x_list = []
-y_list = []
-
-for INDIV in sample_list_rename:
-    for NODE in spatial_ts1_reduced.individual(INDIV).nodes:
-        indiv_list.append(INDIV)
-        node_list.append(NODE)
-        x_list.append(spatial_ts1_reduced.individual(INDIV).location[0])
-        y_list.append(spatial_ts1_reduced.individual(INDIV).location[1])
-
-column_names = ['indiv', 'node', 'x', 'y']
-
-with open(args.output_file_path + args.output_prefix + '_indiv_node_info.txt', 'w') as file:
-    # Write the rows, aligning each list as a column
-    file.write("\t".join(column_names) + "\n")
-    for i,x in enumerate(indiv_list):
-            row = f"{indiv_list[i]}\t{node_list[i]}\t{x_list[i]}\t{y_list[i]}\n"
-            file.write(row)
-
-
-### OUTPUTTING TREES AS NEWICKS ###
-for TREE in range(0, spatial_ts1_reduced.num_trees, args.tree_sep):
-    with open(args.output_tree_path + args.output_prefix + str(TREE) + ".nwk", "w") as f:
-        f.write(spatial_ts1_reduced.at_index(TREE).as_newick())
-        #print('exported' + str(TREE))
-
-
-#OUTPUTTING TREE SPAN AND COORDINATE INFO
-column_names = ['tree_index', 'left_interval', 'right_interval', 'span']
-with open(args.output_file_path + 'tree_interval_info.txt', 'w') as file:
-    file.write("\t".join(column_names) + "\n")
-    for TREE in range(0, spatial_ts1_reduced.num_trees, args.tree_sep):
-        left_interv = spatial_ts1_reduced.at_index(TREE).interval.left
-        right_interv = spatial_ts1_reduced.at_index(TREE).interval.right
-        span = spatial_ts1_reduced.at_index(TREE).span
-        
-        row = f"{TREE}\t{left_interv}\t{right_interv}\t{span}\n"
-        file.write(row)
-
-
-column_names = ['focal_node_simplified', 'focal_node_original', 'ancestor', 'left_interval', 'right_interval']
-
-with open(args.output_file_path + 'node_founder_ancestry_intervals.txt', 'w') as file:
-    file.write("\t".join(column_names) + "\n")
-    for index in range(len(anc_node_info_list)):
-        focal_node = anc_node_info_list[index]['focal_node']
-
-        for index1 in range(len(anc_node_info_list[index]['ancestor_list'])):
-            ancestor = anc_node_info_list[index]['ancestor_list'][index1]
-            left_interv = anc_node_info_list[index]['left_interv_list'][index1]
-            right_interv = anc_node_info_list[index]['right_interv_list'][index1]
-
-            row = f"{node_map[focal_node]}\t{focal_node}\t{ancestor}\t{left_interv}\t{right_interv}\n"
-            file.write(row)
-
-
-
