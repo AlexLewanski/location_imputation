@@ -3,8 +3,8 @@
 ### FUNCTIONS FOR SPATIAL IMPUTATION WITH GENEALOGIES ###
 #########################################################
 #########################################################
-message('REQUIRED PACKAGES: MASS, Matrix, mvtnorm')
-message('For parallel version of soft assign wrapper, you need future.apply')
+message('REQUIRED PACKAGES: ape, Matrix, mvtnorm')
+message('For parallel version of soft assign wrapper, you need future.apply and progressr')
 
 ################
 ### OVERVIEW ###
@@ -57,7 +57,7 @@ est_brownian_rate_mat <- function(missing_inds = NULL, tree_covar, root_vals, tr
 
 estimate_root_and_rate <- function(tree, missing_inds, trait_info) {
   #recover()
-  tree_covar <- vcv.phylo(tree)
+  tree_covar <- ape::vcv.phylo(tree)
   vcv_subset <- tree_covar[!(rownames(tree_covar) %in% missing_inds),
                            !(colnames(tree_covar) %in% missing_inds)]
   trait_reorder <- trait_info[rank(match(rownames(tree_covar), rownames(trait_info)), na.last = NA),]
@@ -111,7 +111,7 @@ process_tree <- function(tree, trait, brown_rate_mat, root_coords, missing_inds,
   
   element_list <- list()
   
-  element_list[['tree_covar']] <- vcv.phylo(tree)
+  element_list[['tree_covar']] <- ape::vcv.phylo(tree)
   
   element_list[['trait_reorder']] <- trait[rank(match(rownames(element_list[['tree_covar']]), rownames(trait)), na.last = NA),]
   
@@ -135,7 +135,7 @@ process_trees <- function(tree_list, trait, brown_rate_mat, root_coords_list, mi
   cond_info_list <- list()
   for (i in 1:length(tree_list)) {
     cond_info_list[[i]] <- process_tree(tree = tree_list[[i]], 
-                                        trait = miss_info_mat, 
+                                        trait = trait, 
                                         brown_rate_mat = brown_rate_mat, 
                                         root_coords = root_coords_list[[i]],
                                         missing_inds = missing_inds,
@@ -265,7 +265,7 @@ multiply_mvnorms <- function(mu_list, Sigma_list) {
 calc_vcv_single_tree <- function(tree) {
 
   tip_order <- tree$tip.label
-  vcv_mat <- vcv.phylo(tree)
+  vcv_mat <- ape::vcv.phylo(tree)
 
   return(vcv_mat[match(tip_order, rownames(vcv_mat)),
                  match(tip_order, colnames(vcv_mat))]
@@ -313,8 +313,8 @@ condition_mvn <- function(mu, V, A) {
 ##############################################
 
 em_hardassign_wrapper <- function(times = 1,
-                                  cond_mean = cond_mean_list, 
-                                  cond_var = cond_var_list, 
+                                  cond_mean, 
+                                  cond_var, 
                                   k, 
                                   max_stp = 20, 
                                   conv_thresh = 1e-5,
@@ -323,7 +323,11 @@ em_hardassign_wrapper <- function(times = 1,
                                   retain_all_outputs = TRUE,
                                   starting_location_seed = NULL) {
   #recover()
-  #need to fix seed
+  
+  if (!is.null(starting_location_seed)) {
+    set.seed(starting_location_seed)
+  }
+  
   est_list <- list()
   
   for (est in seq_len(times)) {
@@ -333,7 +337,7 @@ em_hardassign_wrapper <- function(times = 1,
                                      max_stp = max_stp, 
                                      conv_thresh = conv_thresh, 
                                      sp_bounds = sp_bounds,
-                                     starting_location_seed = starting_location_seed
+                                     starting_location_seed = NULL
     )
     
     message('finished ', est)
@@ -352,8 +356,8 @@ em_hardassign_wrapper <- function(times = 1,
 }
 
 em_softassign_wrapper <- function(times = 1,
-                                  cond_mean = cond_mean_list, 
-                                  cond_var = cond_var_list, 
+                                  cond_mean, 
+                                  cond_var, 
                                   k, 
                                   max_stp = 20, 
                                   conv_thresh = 1e-5,
@@ -362,7 +366,12 @@ em_softassign_wrapper <- function(times = 1,
                                   retain_all_outputs = TRUE,
                                   starting_location_seed = NULL) {
   #recover()
-  #need to fix seed
+  
+  if (!is.null(starting_location_seed)) {
+    set.seed(starting_location_seed)
+  }
+  
+  
   est_list <- list()
   
   for (est in seq_len(times)) {
@@ -372,7 +381,7 @@ em_softassign_wrapper <- function(times = 1,
                                      max_stp = max_stp, 
                                      conv_thresh = conv_thresh, 
                                      sp_bounds = sp_bounds,
-                                     starting_location_seed = starting_location_seed
+                                     starting_location_seed = NULL
     )
     
     message('finished ', est)
@@ -390,54 +399,6 @@ em_softassign_wrapper <- function(times = 1,
   return(process_output_list)
 }
 
-em_softassign_wrapper_par <- function(times = 1,
-                                      cond_mean = cond_mean_list, 
-                                      cond_var = cond_var_list, 
-                                      k, 
-                                      max_stp = 20, 
-                                      conv_thresh = 1e-5,
-                                      lik_equality_tol = 1e-6,
-                                      sp_bounds,
-                                      retain_all_outputs = TRUE,
-                                      starting_location_seed = NULL) {
-  
-  progressr::with_progress({
-    
-    p <- progressr::progressor(steps = times)
-    
-    est_list <- future.apply::future_lapply(
-      seq_len(times),
-      function(est) {
-        
-        result <- em_softassign(
-          cond_mean = cond_mean, 
-          cond_var = cond_var, 
-          k = k, 
-          max_stp = max_stp, 
-          conv_thresh = conv_thresh, 
-          sp_bounds = sp_bounds,
-          starting_location_seed = starting_location_seed
-        )
-        
-        p(sprintf("Finished %d/%d", est, times))
-        
-        result
-      }
-    )
-  })
-  
-  process_output_list <- process_em_output(
-    output_list = est_list,
-    lik_tol = lik_equality_tol,
-    assignment_approach = "soft"
-  )
-  
-  if (isTRUE(retain_all_outputs)) {
-    process_output_list[["output_list"]] <- est_list
-  }
-  
-  return(process_output_list)
-}
 
 
 
@@ -447,8 +408,10 @@ em_hardassign <- function(cond_mean,
                           max_stp, 
                           conv_thresh,
                           sp_bounds, 
-                          stopping_criterion,
                           starting_location_seed = NULL) {
+  
+  #check to make sure max_stp is at least 3
+  stopifnot(max_stp >= 3)
   
   #recover()
   
@@ -481,11 +444,18 @@ em_hardassign <- function(cond_mean,
   #=== LOCATION INITIALIZATION ===
   #===============================
   
-  repeat {
+  #setting seed before the repeat loop so that a new set of coordinates are generated
+  #instead of just fixed coordinates if the set.seed is placed within the loop
+  
+  # Set the seed only when one is supplied. Wrappers seed once for the whole
+  # batch, so leaving this NULL lets each run draw from the continuing RNG stream.
+  if (!is.null(starting_location_seed)) {
     set.seed(starting_location_seed)
+  }
+  
+  repeat {
     Xold <- as.vector(t(cbind(runif(k,min=sp_bounds$x[1],max=sp_bounds$x[2]),
                               runif(k,min=sp_bounds$y[1],max=sp_bounds$y[2]))))
-    set.seed(NULL)
     if (k == 1) break
     
     group_info_list <- list()
@@ -580,8 +550,9 @@ em_hardassign <- function(cond_mean,
     #(1) summing the likelihoods (not log likelihoods) within trees
     #(2) taking the log of the summed likelihood for each tree
     #(3) summing the log summed likelihood across trees
-    loglik_list[[stp]] <- sum(unlist(lapply(like_list, function(x) {log(sum(exp(x)))}))) #sum(unlist(like_list)) #log likelihood
-    
+    #loglik_list[[stp]] <- sum(unlist(lapply(like_list, function(x) {log(sum(exp(x)))}))) #sum(unlist(like_list)) #log likelihood
+    loglik_list[[stp]] <- sum(unlist(lapply(like_list, log_sum_exp))) #sum(unlist(like_list)) #log likelihood
+      
     message(paste0('iter ', stp, '; loglik = ', loglik_list[[stp]]))
     
     
@@ -633,6 +604,10 @@ em_softassign <- function(cond_mean,
   #=======================
   #=== FUNCTION SET-UP ===
   #=======================
+  
+  #check to make sure max_stp is at least 3
+  stopifnot(max_stp >= 3)
+  
   tree_count <- length(cond_mean) #number of trees
   
   #lists to store things
@@ -656,10 +631,15 @@ em_softassign <- function(cond_mean,
   #set.seed(3543)
   #currently doing this in the simplest way possible: uniformly sampling across
   #the area defined by sp_bounds
-  set.seed(starting_location_seed)
+  
+  # Set the seed only when one is supplied. Wrappers seed once for the whole
+  # batch, so leaving this NULL lets each run draw from the continuing RNG stream.
+  if (!is.null(starting_location_seed)) {
+    set.seed(starting_location_seed)
+  }
+  
   Xold <- as.vector(t(cbind(runif(k, min = sp_bounds$x[1], max = sp_bounds$x[2]),
                             runif(k, min = sp_bounds$y[1], max = sp_bounds$y[2]))))
-  set.seed(NULL)
   #initial param vals
   xvec_list[[1]] <- Xold
   
@@ -725,7 +705,8 @@ em_softassign <- function(cond_mean,
     #(1) summing the likelihoods (not log likelihoods) within trees
     #(2) taking the log of the summed likelihood for each tree
     #(3) summing the log summed likelihood across trees
-    loglik_list[[stp]] <- sum(unlist(lapply(like_list, function(x) {log(sum(exp(x)))}))) #sum(unlist(like_list)) #log likelihood
+    #loglik_list[[stp]] <- sum(unlist(lapply(like_list, function(x) {log(sum(exp(x)))}))) #sum(unlist(like_list)) #log likelihood
+    loglik_list[[stp]] <- sum(unlist(lapply(like_list, log_sum_exp)))
     
     message(paste0('iter ', stp, '; loglik = ', loglik_list[[stp]]))
     
@@ -739,17 +720,19 @@ em_softassign <- function(cond_mean,
     
     #if the current lik is less than the previous lik, throw an error
     if (loglik_list[[stp]] < loglik_list[[stp - 1]] ) {
-      message('The likelihood decreased. Halting estimation and outputting some info.')
-      
-      return(
-        list(
-          newlik = loglik_list[[stp]],
-          oldlik = loglik_list[[stp - 1]],
-          group_membership_list = weight_list,
-          xvec_list = xvec_list,
-          q_list = q_list
-        )
-      )
+      #message('The likelihood decreased. Halting estimation and outputting some info.')
+      stop('The likelihood decreased. Halting estimation and outputting some info.')
+      ##Currently, I am not outputting things associated with stop call. But I could
+      ##be informative to do this to diagnose issues if the stop call is triggered.
+      # return(
+      #   list(
+      #     newlik = loglik_list[[stp]],
+      #     oldlik = loglik_list[[stp - 1]],
+      #     group_membership_list = weight_list,
+      #     xvec_list = xvec_list,
+      #     q_list = q_list
+      #   )
+      # )
       
     }
     
@@ -818,8 +801,42 @@ m_step <- function(param, r_list, cond_mean_list, cond_var_list, group_count) {
 }
 
 
+log_sum_exp <- function(x) {
+  if (length(x) == 0L) {
+    return(-Inf)
+  }
+  
+  m <- max(x)
+  
+  if (m == Inf | m == -Inf) return(m)
+  
+  m + log(sum(exp(x - m)))
+}
 
 normalize_loglik <- function(loglik_mat) {
+  # Check input
+  if (!is.numeric(loglik_mat) || length(loglik_mat) == 0L) {
+    stop("'loglik_mat' must be a non-empty numeric object.")
+  }
+  
+  if (anyNA(loglik_mat) || any(is.nan(loglik_mat))) {
+    stop("'loglik_mat' contains NA or NaN values.")
+  }
+  
+  # Handle infinite values
+  if (any(loglik_mat == Inf)) {
+    # Assign equal probability to all positive infinities
+    out <- (loglik_mat == Inf) / sum(loglik_mat == Inf)
+    dim(out) <- dim(loglik_mat)
+    return(out)
+  }
+  
+  if (all(loglik_mat == -Inf)) {
+    stop("All log-likelihoods are -Inf; normalization is undefined.")
+  }
+  
+  
+  
   #NORMALIZE: normalize the likelihoods so that they sum to 1. Because we are
   #initially calculating log likelihoods, I am using the log-sum-exp approach to
   #avoid underflow issues
@@ -1097,7 +1114,6 @@ relabel_mat_names_list <- function(mat_list, map) {
   }
   
   return(mat_list)
-  
 }
 
 
@@ -1111,8 +1127,10 @@ relabel_loc <- function(name_vec, map) {
 
 
 
-process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-12, assignment_approach = c('soft', 'hard')) {
+process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-12, assignment_approach) {
   #recover()
+  assignment_approach <- match.arg(assignment_approach, choices = c("soft", "hard"), several.ok = FALSE)
+  
   like_list <- lapply(output_list, function(x) x$like_vec) #likelihood vecs from each run
   top_like_vec <- sapply(like_list, function(x) max(x, na.rm = TRUE)) #top likelihood from each run
   max_indices <- which(abs(top_like_vec - max(top_like_vec)) <= lik_tol) #indices of top likelihoods across runs
@@ -1131,15 +1149,16 @@ process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-1
   xlist_ranked_matchup <- ranked_match_up_multi(x_list = x_list)
   
   convert_labels_list <-  switch(assignment_approach,
-         'soft_assign' = {
+         'soft' = {
            relabel_mat_names_list_multi(multi_mat_list = group_membership_list, 
                                         map_list = xlist_ranked_matchup, 
                                         order_sequentially = TRUE)
          },
-         'hard_assign' = {
+         'hard' = {
            convert_labels_multi(membership_list = group_membership_list, 
                                 matchup_list = xlist_ranked_matchup)
-         })
+         },
+         stop('Not a valid assignment approach.'))
   
   
   #convert_labels_list <- convert_labels_multi(membership_list = group_membership_list, 
@@ -1148,7 +1167,12 @@ process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-1
   #remove duplicates
   #compare matrices but only compare the x and y coordinates. The reference column should
   #match up but the original groups column shouldn't be compared.
-  duplicated_indices <- duplicated_matrix(matrix_list = lapply(ranked_match_up_multi(xlist_ranked_matchup), function(x) x[,c('x', 'y')]), 
+  #DATE: 10/16/2026 -- Fixing an (seemingly) inconsequential but unnecessary step
+  #of passing xlist_ranked_matchup through ranked_match_up_multi again. I am
+  #simplifying down to just extracting the x and y coordinates from xlist_ranked_matchup
+  #duplicated_indices <- duplicated_matrix(matrix_list = lapply(ranked_match_up_multi(xlist_ranked_matchup), function(x) x[,c('x', 'y')]), 
+  #                                        tol = duplicated_tol)
+  duplicated_indices <- duplicated_matrix(matrix_list = lapply(xlist_ranked_matchup, function(x) x[,c('x', 'y')]), 
                                           tol = duplicated_tol)
   xlist_remove_duplicates <- xlist_ranked_matchup[!duplicated_indices]
   group_membership_list_remove_duplicates <- group_membership_list[!duplicated_indices]
@@ -1169,6 +1193,66 @@ process_em_output <- function(output_list, lik_tol = 1e-6, duplicated_tol = 1e-1
   )
 }
 
+
+
+
+
+
+
+
+
+########################
+### UNUSED FUNCTIONS ###
+########################
+
+# em_softassign_wrapper_par <- function(times = 1,
+#                                       cond_mean, 
+#                                       cond_var, 
+#                                       k, 
+#                                       max_stp = 20, 
+#                                       conv_thresh = 1e-5,
+#                                       lik_equality_tol = 1e-6,
+#                                       sp_bounds,
+#                                       retain_all_outputs = TRUE,
+#                                       starting_location_seed = NULL) {
+#   
+#   progressr::with_progress({
+#     
+#     p <- progressr::progressor(steps = times)
+#     
+#     est_list <- future.apply::future_lapply(
+#       seq_len(times),
+#       function(est) {
+#         
+#         result <- em_softassign(
+#           cond_mean = cond_mean, 
+#           cond_var = cond_var, 
+#           k = k, 
+#           max_stp = max_stp, 
+#           conv_thresh = conv_thresh, 
+#           sp_bounds = sp_bounds,
+#           starting_location_seed = starting_location_seed
+#         )
+#         
+#         p(sprintf("Finished %d/%d", est, times))
+#         
+#         result
+#       }
+#     )
+#   })
+#   
+#   process_output_list <- process_em_output(
+#     output_list = est_list,
+#     lik_tol = lik_equality_tol,
+#     assignment_approach = "soft"
+#   )
+#   
+#   if (isTRUE(retain_all_outputs)) {
+#     process_output_list[["output_list"]] <- est_list
+#   }
+#   
+#   return(process_output_list)
+# }
 
 
 #####################
