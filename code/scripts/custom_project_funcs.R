@@ -8,8 +8,24 @@
 ### OVERVIEW ###
 ################
 #This script contains various custom functions for the spatial imputation project
-#outside of the core functions that implement the location inference method. Those
-#functions are housed in location_est_code.R
+#outside of the core functions that implement the location inference method.
+
+
+
+#############################
+### SIMULATION PROCESSING ###
+#############################
+
+#read in a list of newick trees that are stored in a single gzipped file with
+#each tree on its own line
+trees_from_gz <- function(file_name) {
+  
+  connect <- gzfile(file_name, open = "rt")
+  on.exit(close(connect)) #closes connection even with an error when loading the trees
+  tree_name <- readLines(connect) 
+  
+  return(lapply(tree_name, function(x) ape::read.tree(text = x)))
+}
 
 
 
@@ -84,6 +100,9 @@ assign_ancestor <- function(tree_interval_info,
   return(df_list)
   
 }
+
+
+
 
 
 
