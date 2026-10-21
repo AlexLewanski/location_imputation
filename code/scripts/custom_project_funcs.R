@@ -35,7 +35,7 @@ read_trees_from_gz <- function(file_name) {
 
 pedigree_founder_info <- function(indiv_id, admix_node_df, offspring_df, parent_loc_df) {
   
-  pedig_id <- admix_node_df[admix_node_df[,'indiv'] == indiv_id,]$ped_id[1]
+  pedig_id <- admix_node_df[admix_node_df[,'indiv_id'] == indiv_id,]$ped_id[1]
   
   counter <- 1
   ancestor_list <- list()
